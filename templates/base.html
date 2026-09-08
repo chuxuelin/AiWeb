@@ -4,420 +4,148 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MoveWell | 运动健康</title>
-    <style>
-      
-        :root {
-            --bg1: #071c2f;
-            --bg2: #0f2e47;
-            --panel: rgba(10, 24, 38, 0.72);
-            --panel-light: rgba(255, 255, 255, 0.08);
-            --primary: #70f0c5;
-            --primary-2: #77c9ff;
-            --accent: #ffc857;
-            --text: #ecf7ff;
-            --muted: #a6c3d9;
-            --shadow: 0 24px 60px rgba(8, 18, 30, 0.45);
-        }
-
-        * { box-sizing: border-box; }
-
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(112, 240, 197, 0.2), transparent 26%),
-                radial-gradient(circle at bottom right, rgba(119, 201, 255, 0.18), transparent 30%),
-                linear-gradient(135deg, var(--bg1), var(--bg2));
-        }
-
-        .page {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 24px;
-        }
-
-        .shell {
-            position: relative;
-            width: min(1200px, 100%);
-            min-height: 720px;
-            display: grid;
-            grid-template-columns: 1.1fr 0.9fr;
-            background: rgba(9, 20, 31, 0.55);
-            border: 1px solid rgba(255, 255, 255, 0.09);
-            border-radius: 28px;
-            overflow: hidden;
-            box-shadow: var(--shadow);
-            backdrop-filter: blur(12px);
-        }
-
-        .brand-panel {
-            position: relative;
-            padding: 48px 52px 36px;
-            background:
-                linear-gradient(180deg, rgba(18, 43, 58, 0.72), rgba(8, 16, 25, 0.64)),
-                url("https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1200&q=80") center/cover no-repeat;
-        }
-
-        .brand-panel::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(150deg, rgba(7, 28, 47, 0.55), rgba(7, 28, 47, 0.15));
-        }
-
-        .brand-inner,
-        .login-box {
-            position: relative;
-            z-index: 1;
-        }
-
-        .brand-top {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 90px;
-        }
-
-        .logo {
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
-
-        .logo-mark {
-            width: 38px;
-            height: 38px;
-            display: grid;
-            place-items: center;
-            border-radius: 12px;
-            background: linear-gradient(135deg, var(--primary), var(--primary-2));
-            color: #06243b;
-            font-weight: 900;
-            box-shadow: 0 10px 24px rgba(112, 240, 197, 0.38);
-        }
-
-        .tag {
-            padding: 7px 12px;
-            border: 1px solid rgba(255,255,255,0.12);
-            border-radius: 999px;
-            background: rgba(255,255,255,0.04);
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .hero-text {
-            max-width: 500px;
-        }
-
-        .kicker {
-            display: inline-block;
-            padding: 8px 14px;
-            border-radius: 999px;
-            background: rgba(112, 240, 197, 0.12);
-            border: 1px solid rgba(112, 240, 197, 0.25);
-            color: var(--primary);
-            font-size: 12px;
-            letter-spacing: 0.12em;
-            text-transform: uppercase;
-        }
-
-        h1 {
-            margin: 26px 0 18px;
-            font-size: clamp(2.6rem, 4vw, 4.5rem);
-            line-height: 1.05;
-            letter-spacing: -0.04em;
-        }
-
-        .hero-text p {
-            margin: 0;
-            max-width: 440px;
-            color: var(--muted);
-            font-size: 1.05rem;
-            line-height: 1.8;
-        }
-
-        .stats {
-            display: flex;
-            gap: 22px;
-            margin-top: 40px;
-            flex-wrap: wrap;
-        }
-
-        .stat-box {
-            min-width: 120px;
-            padding: 18px 20px;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 18px;
-            background: rgba(255,255,255,0.04);
-        }
-
-        .num {
-            display: block;
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: var(--text);
-        }
-
-        .label {
-            font-size: 0.8rem;
-            color: var(--muted);
-        }
-
-        .login-box {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 32px;
-            background: rgba(5, 14, 22, 0.4);
-        }
-
-        .card {
-            width: min(420px, 100%);
-            padding: 36px 30px;
-            border-radius: 28px;
-            background: rgba(11, 25, 39, 0.82);
-            border: 1px solid rgba(255,255,255,0.08);
-            box-shadow: 0 20px 40px rgba(2, 9, 16, 0.38);
-        }
-
-        .card h2 {
-            margin: 0 0 8px;
-            font-size: 2rem;
-            letter-spacing: -0.03em;
-        }
-
-        .subtitle {
-            margin: 0 0 28px;
-            color: var(--muted);
-            line-height: 1.6;
-        }
-
-        .socials {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-            margin-bottom: 22px;
-        }
-
-        .social-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            padding: 12px 14px;
-            border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.02);
-            color: var(--text);
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .or {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 8px 0 18px;
-            color: var(--muted);
-            font-size: 0.82rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-        }
-
-        .or::before,
-        .or::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: rgba(255,255,255,0.12);
-        }
-
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
-
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .field label {
-            font-size: 0.85rem;
-            color: var(--muted);
-        }
-
-        .field input {
-            width: 100%;
-            padding: 15px 16px;
-            border-radius: 14px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.03);
-            color: var(--text);
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .field input:focus {
-            border-color: rgba(112, 240, 197, 0.6);
-            box-shadow: 0 0 0 4px rgba(112, 240, 197, 0.12);
-        }
-
-        .row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            font-size: 0.82rem;
-            color: var(--muted);
-        }
-
-        .check {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .check input {
-            accent-color: var(--primary);
-        }
-
-        a {
-            color: var(--primary);
-            text-decoration: none;
-        }
-
-        .submit-btn {
-            padding: 16px 18px;
-            border: none;
-            border-radius: 14px;
-            background: linear-gradient(135deg, var(--primary), var(--primary-2));
-            color: #06263d;
-            font-size: 1rem;
-            font-weight: 800;
-            cursor: pointer;
-            box-shadow: 0 14px 30px rgba(112, 240, 197, 0.28);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .submit-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 18px 28px rgba(112, 240, 197, 0.34);
-        }
-
-        .small-note {
-            margin-top: 18px;
-            font-size: 0.82rem;
-            color: var(--muted);
-            text-align: center;
-        }
-
-        @media (max-width: 900px) {
-            .shell {
-                grid-template-columns: 1fr;
-            }
-
-            .brand-panel {
-                min-height: 420px;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
-    <div class="page">
-        <div class="shell">
-            <section class="brand-panel">
-                <div class="brand-inner">
-                    <div class="brand-top">
-                        <div class="logo">
-                            <span class="logo-mark">M</span>
-                            <span>MoveWell</span>
-                        </div>
+    {% raw %}
+    <div id="app" v-cloak>
+        <main v-if="loading" class="loading-screen">正在加载健康数据...</main>
+
+        <main v-else-if="view === 'login'" class="login-page">
+            <div class="login-shell">
+                <section class="login-hero">
+                    <div class="brand-line">
+                        
                         <span class="tag">健康生活 · 每天前进</span>
                     </div>
-
-                    <div class="hero-text">
-                        <span class="kicker">运动健康</span>
-                        <h1>让每一步都更有力量。</h1>
-                        <p>
-                            记录步数、专注恢复、规划训练，和健康一起成长。
-                            为更好的身体状态和更清晰的生活节奏，开启你的每日运动旅程。
-                        </p>
+                    <span class="eyebrow">运动健康</span>
+                    <h1>让每一步都更有力量。</h1>
+                    <p class="hero-copy">记录步数、专注恢复、规划训练，和健康一起成长。为更好的身体状态和更清晰的生活节奏，开启你的每日运动旅程。</p>
+                    <div class="login-stats">
+                        <div class="login-stat"><strong>24k+</strong><span>活跃用户</span></div>
+                        <div class="login-stat"><strong>92%</strong><span>坚持率</span></div>
+                        <div class="login-stat"><strong>7日</strong><span>健康计划</span></div>
                     </div>
+                </section>
 
-                    <div class="stats">
-                        <div class="stat-box">
-                            <span class="num">24k+</span>
-                            <span class="label">活跃用户</span>
+                <section class="login-panel">
+                    <div class="login-card">
+                        <h2>欢迎回来</h2>
+                        <p class="subtitle">登录你的运动健康账户，继续打磨更强的自己。</p>
+                        <div class="socials">
+                            <button class="ghost-button" type="button">Google</button>
+                            <button class="ghost-button" type="button">Apple</button>
                         </div>
-                        <div class="stat-box">
-                            <span class="num">92%</span>
-                            <span class="label">坚持率</span>
-                        </div>
-                        <div class="stat-box">
-                            <span class="num">7日</span>
-                            <span class="label">健康计划</span>
-                        </div>
+                        <div class="divider">or</div>
+                        <div v-if="error" class="error">{{ error }}</div>
+                        <form class="login-form" @submit.prevent="login">
+                            <div class="field">
+                                <label for="email">账号</label>
+                                <input id="email" v-model="credentials.email" type="text" autocomplete="username" placeholder="请输入账号">
+                            </div>
+                            <div class="field">
+                                <label for="password">密码</label>
+                                <input id="password" v-model="credentials.password" type="password" autocomplete="current-password" placeholder="请输入密码">
+                            </div>
+                            <div class="form-row">
+                                <label><input type="checkbox"> 记住我</label>
+                                <a href="#" @click.prevent>忘记密码？</a>
+                            </div>
+                            <button class="primary-button" type="submit" :disabled="submitting">{{ submitting ? '登录中...' : '登录' }}</button>
+                        </form>
+                        <p class="note">测试账号：<strong>admin</strong> / <strong>123</strong></p>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <main v-else class="dashboard-page">
+            <header class="dashboard-top">
+                <div class="brand"><span class="brand-badge">H</span><span>健康运动</span></div>
+                <nav class="main-nav" aria-label="主导航">
+                    <button v-for="item in navItems" :key="item.key" class="nav-item" :class="{ active: activeNav === item.key }" type="button" @click="activeNav = item.key">
+                        <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+                        <span>{{ item.label }}</span>
+                    </button>
+                </nav>
+                <div class="profile-wrap">
+                    <button class="profile-button" type="button" @click="profileOpen = !profileOpen">
+                        <span class="avatar">Y</span>
+                        <span><strong>{{ formattedUser }}</strong><small class="small-text">{{ dashboard.user.level }}</small></span>
+                    </button>
+                    <div v-if="profileOpen" class="profile-menu">
+                        <button type="button">个人中心</button>
+                        <button type="button">设置</button>
+                        <button type="button" @click="goAdmin">后台数据管理</button>
+                        <button class="logout" type="button" @click="logout">退出登录</button>
                     </div>
                 </div>
+            </header>
+
+            <section v-if="activeNav === 'home'" class="header-grid">
+                <article class="hero-panel">
+                    <span class="eyebrow">今日健康状态</span>
+                    <div class="hero-metrics">
+                        <div class="hero-metric"><strong>{{ dashboard.hero.steps.toLocaleString() }}</strong><span>步数</span></div>
+                        <div class="hero-metric"><strong>{{ dashboard.hero.sleepQuality }}%</strong><span>睡眠质量</span></div>
+                        <div class="hero-metric"><strong>{{ dashboard.hero.exerciseMinutes }} min</strong><span>运动时间</span></div>
+                    </div>
+                </article>
+                <article class="panel summary-panel">
+                    <h2>体适能分析</h2>
+                    <div class="ring"><div class="ring-inner">{{ dashboard.summary.fitness }}%</div></div>
+                    <p>{{ dashboard.summary.message }}</p>
+                </article>
             </section>
 
-            <section class="login-box">
-                <div class="card">
-                    <h2>欢迎回来</h2>
-                    <p class="subtitle">登录你的运动健康账户，继续打磨更强的自己。</p>
+            <section v-if="activeNav === 'home'" class="metric-grid">
+                <article v-for="metric in dashboard.metrics" :key="metric.key" class="panel metric-card" :class="{ 'water-card': metric.key === 'water' }">
+                    <div class="metric-top"><span class="metric-title">{{ metric.title }}</span><span class="trend" :class="metric.tone">{{ metric.trend }}</span></div>
+                    <div class="metric-value">{{ metric.value }}{{ metric.unit }}</div>
+                    <div class="small-text">{{ metric.note }}</div>
+                    <button v-if="metric.sync" class="sync-button" type="button" @click="scanOpen = true">微信扫码同步</button>
+                </article>
+            </section>
 
-                    <div class="socials">
-                        <button class="social-btn" type="button">Google</button>
-                        <button class="social-btn" type="button">Apple</button>
-                    </div>
+            <section v-if="activeNav === 'home'" class="content-grid">
+                <article class="panel chart-card">
+                    <div class="section-title"><h2>一周健康趋势</h2><span class="small-text">近7天</span></div>
+                    <div class="chart"><div v-for="(height, index) in dashboard.chart" :key="index" class="bar-wrap"><div class="bar" :class="{ alt: index % 2 === 1 }" :style="{ height: height + '%' }"></div><span class="day">{{ ['一', '二', '三', '四', '五', '六', '日'][index] }}</span></div></div>
+                </article>
+                <article class="panel task-card">
+                    <div class="section-title"><h2>健康提醒</h2><span class="small-text">{{ dashboard.tasks.length }} 条</span></div>
+                    <div class="task-list"><div v-for="task in dashboard.tasks" :key="task.title" class="task"><div class="task-left"><span class="dot" :class="task.tone"></span><div class="task-text"><strong>{{ task.title }}</strong><span>{{ task.detail }}</span></div></div><span class="status" :class="task.tone">{{ task.status }}</span></div></div>
+                </article>
+            </section>
 
-                    <div class="or">or</div>
+            <section v-if="activeNav === 'home'" class="panel insights-card">
+                <div class="section-title"><h2>健康分析</h2><span class="small-text">AI 评估</span></div>
+                <div class="insight-list"><div v-for="insight in dashboard.insights" :key="insight.title" class="insight-item"><strong>{{ insight.title }}</strong><span>{{ insight.text }}</span></div></div>
+            </section>
 
-                    {% if error %}
-                    <div style="margin-bottom:18px; padding:12px 14px; border-radius:12px; background:rgba(255,111,97,0.12); border:1px solid rgba(255,111,97,0.28); color:#ffd8d3; font-size:0.85rem;">
-                        {{ error }}
-                    </div>
-                    {% endif %}
-
-                    <form method="post" action="/login">
-                        <div class="field">
-                            <label for="email">邮箱</label>
-                            <input id="email" name="email" type="text" value="admin" placeholder="请输入邮箱">
-                        </div>
-
-                        <div class="field">
-                            <label for="password">密码</label>
-                            <input id="password" name="password" type="password" value="123" placeholder="请输入密码">
-                        </div>
-
-                        <div class="row">
-                            <label class="check">
-                                <input type="checkbox">
-                                <span>记住我</span>
-                            </label>
-                            <a href="#">忘记密码？</a>
-                        </div>
-
-                        <button class="submit-btn" type="submit">登录</button>
-                    </form>
-
-                    <div class="small-note">
-                        测试账号：<strong>admin</strong> / <strong>123</strong>
-                    </div>
+            <section v-if="activeNav !== 'home'" class="panel feature-view">
+                <div class="feature-icon">{{ navItems.find((item) => item.key === activeNav).icon }}</div>
+                <span class="eyebrow">{{ navItems.find((item) => item.key === activeNav).label }}</span>
+                <h1>{{ navItems.find((item) => item.key === activeNav).description }}</h1>
+                <p>这里将集中展示{{ navItems.find((item) => item.key === activeNav).label }}相关内容，后续可以继续接入 Flask API 和真实业务数据。</p>
+                <div class="feature-cards">
+                    <div><strong>数据准备中</strong><span>根据你的健康档案生成专属内容</span></div>
+                    <div><strong>智能同步</strong><span>连接设备后自动更新最新状态</span></div>
                 </div>
+            </section>
+        </main>
+
+        <div v-if="scanOpen" class="modal-backdrop" @click.self="scanOpen = false">
+            <section class="modal">
+                <h2>微信扫码同步</h2>
+                <div class="qr-box"></div>
+                <p>请打开微信“扫一扫”，扫描二维码后同步当前步数数据。</p>
+                <button class="primary-button" type="button" @click="scanOpen = false; syncSteps()">已同步</button>
             </section>
         </div>
     </div>
+    {% endraw %}
+    <script src="{{ url_for('static', filename='vendor/vue.js') }}"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

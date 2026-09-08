@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoveWell | 后台数据管理</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f6fb; color: #1f2937; }
+        a { text-decoration: none; color: inherit; }
+        .topbar { background: #111827; color: #fff; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+        .topbar .brand { font-size: 18px; font-weight: 700; }
+        .topbar .brand span { color: #34d399; }
+        .topbar .actions a, .topbar .actions button { color: #d1d5db; background: none; border: 1px solid #374151; border-radius: 8px; padding: 7px 14px; margin-left: 10px; cursor: pointer; font-size: 13px; }
+        .topbar .actions button:hover, .topbar .actions a:hover { color: #fff; border-color: #6b7280; }
+        .layout { display: flex; min-height: calc(100vh - 56px); }
+        .sidebar { width: 190px; background: #fff; border-right: 1px solid #e5e7eb; padding: 18px 0; flex-shrink: 0; }
+        .sidebar .menu-item { display: block; padding: 13px 26px; cursor: pointer; font-size: 14px; color: #4b5563; border-left: 3px solid transparent; }
+        .sidebar .menu-item:hover { background: #f9fafb; }
+        .sidebar .menu-item.active { color: #059669; border-left-color: #059669; background: #ecfdf5; font-weight: 600; }
+        .content { flex: 1; padding: 26px 32px; }
+        .content h1 { font-size: 20px; margin-bottom: 4px; }
+        .content .sub { color: #6b7280; font-size: 13px; margin-bottom: 20px; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .btn { border: none; border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer; }
+        .btn-primary { background: #059669; color: #fff; }
+        .btn-primary:hover { background: #047857; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+        .btn-edit { background: #dbeafe; color: #1d4ed8; }
+        .btn-del { background: #fee2e2; color: #dc2626; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+        th, td { padding: 12px 14px; text-align: left; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+        th { background: #f8fafc; color: #64748b; font-weight: 600; white-space: nowrap; }
+        tr:last-child td { border-bottom: none; }
+        td .btn-sm { margin-right: 6px; cursor: pointer; border: none; }
+        .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
+        .tag-normal { background: #d1fae5; color: #047857; }
+        .tag-warning { background: #fef3c7; color: #b45309; }
+        .tag-danger { background: #fee2e2; color: #dc2626; }
+        .empty { text-align: center; color: #9ca3af; padding: 40px; font-size: 13px; }
+        .mask { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
+        .modal { background: #fff; border-radius: 14px; width: 480px; max-width: 92vw; max-height: 88vh; overflow-y: auto; padding: 24px 26px; }
+        .modal h2 { font-size: 17px; margin-bottom: 18px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+        .form-grid .full { grid-column: 1 / -1; }
+        .form-grid label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 5px; }
+        .form-grid input, .form-grid select, .form-grid textarea {
+            width: 100%; padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; outline: none;
+        }
+        .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: #059669; }
+        .form-grid textarea { resize: vertical; min-height: 64px; }
+        .modal-foot { margin-top: 22px; display: flex; justify-content: flex-end; gap: 10px; }
+        .btn-cancel { background: #f3f4f6; color: #374151; }
+        .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 10px 22px; border-radius: 10px; font-size: 13px; z-index: 99; opacity: 0; transition: opacity .25s; pointer-events: none; }
+        .toast.show { opacity: 1; }
+        .toast.err { background: #dc2626; }
+        .login-tip { text-align: center; padding: 80px; color: #6b7280; }
+        .login-tip a { color: #059669; font-weight: 600; }
+    </style>
+</head>
+<body>
+    {% raw %}
+    <div id="admin">
+        <template v-if="checked && authed">
+            <header class="topbar">
+                <div class="brand">MoveWell <span>后台数据管理</span></div>
+                <div class="actions">
+                    <a href="/">← 返回前台</a>
+                    <button type="button" @click="logout">退出登录</button>
+                </div>
+            </header>
+            <div class="layout">
+                <nav class="sidebar">
+                    <div v-for="tab in tabs" :key="tab.key" class="menu-item"
+                         :class="{ active: active === tab.key }" @click="switchTab(tab.key)">
+                        {{ tab.label }}
+                    </div>
+                </nav>
+                <main class="content">
+                    <h1>{{ currentTab.label }}</h1>
+                    <p class="sub">{{ currentTab.desc }}</p>
+
+                    <!-- 用户管理 -->
+                    <section v-if="active === 'users'">
+                        <div class="toolbar">
+                            <span style="font-size:13px;color:#6b7280">共 {{ users.length }} 个账号</span>
+                            <button class="btn btn-primary" @click="openUserModal()">+ 新增账号</button>
+                        </div>
+                        <table>
+                            <thead><tr><th>ID</th><th>账号</th><th>昵称</th><th>邮箱</th><th>等级</th><th>注册时间</th><th>操作</th></tr></thead>
+                            <tbody>
+                                <tr v-for="u in users" :key="u.id">
+                                    <td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ u.name }}</td>
+                                    <td>{{ u.email || '—' }}</td><td>{{ u.level }}</td><td>{{ fmtDate(u.created_at) }}</td>
+                                    <td>
+                                        <button class="btn-sm btn-edit" @click="openUserModal(u)">编辑</button>
+                                        <button class="btn-sm btn-del" @click="remove('users', u.id)">删除</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!users.length"><td colspan="7" class="empty">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- 健康记录 -->
+                    <section v-if="active === 'records'">
+                        <div class="toolbar">
+                            <span style="font-size:13px;color:#6b7280">近 60 条每日健康记录</span>
+                            <button class="btn btn-primary" @click="openRecordModal()">+ 新增/更新记录</button>
+                        </div>
+                        <table>
+                            <thead><tr>
+                                <th>日期</th><th>步数</th><th>心率</th><th>睡眠(h)</th><th>热量</th>
+                                <th>水分(L)</th><th>睡眠质量</th><th>运动(min)</th><th>体适能</th><th>操作</th>
+                            </tr></thead>
+                            <tbody>
+                                <tr v-for="r in records" :key="r.id">
+                                    <td>{{ r.record_date }}</td><td>{{ r.steps }}</td><td>{{ r.heart_rate }}</td>
+                                    <td>{{ r.sleep_hours }}</td><td>{{ r.calories }}</td><td>{{ r.water_liters }}</td>
+                                    <td>{{ r.sleep_quality }}%</td><td>{{ r.exercise_minutes }}</td><td>{{ r.fitness_score }}%</td>
+                                    <td>
+                                        <button class="btn-sm btn-edit" @click="openRecordModal(r)">编辑</button>
+                                        <button class="btn-sm btn-del" @click="remove('records', r.id)">删除</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!records.length"><td colspan="10" class="empty">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- 提醒任务 -->
+                    <section v-if="active === 'tasks'">
+                        <div class="toolbar">
+                            <span style="font-size:13px;color:#6b7280">首页“健康提醒”卡片数据</span>
+                            <button class="btn btn-primary" @click="openTaskModal()">+ 新增提醒</button>
+                        </div>
+                        <table>
+                            <thead><tr><th>ID</th><th>标题</th><th>详情</th><th>状态</th><th>级别</th><th>操作</th></tr></thead>
+                            <tbody>
+                                <tr v-for="t in tasks" :key="t.id">
+                                    <td>{{ t.id }}</td><td>{{ t.title }}</td><td>{{ t.detail }}</td>
+                                    <td>{{ t.status }}</td>
+                                    <td><span class="tag" :class="'tag-' + t.tone">{{ toneLabel(t.tone) }}</span></td>
+                                    <td>
+                                        <button class="btn-sm btn-edit" @click="openTaskModal(t)">编辑</button>
+                                        <button class="btn-sm btn-del" @click="remove('tasks', t.id)">删除</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!tasks.length"><td colspan="6" class="empty">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <!-- 健康分析 -->
+                    <section v-if="active === 'insights'">
+                        <div class="toolbar">
+                            <span style="font-size:13px;color:#6b7280">首页“健康分析 / AI 评估”数据</span>
+                            <button class="btn btn-primary" @click="openInsightModal()">+ 新增分析</button>
+                        </div>
+                        <table>
+                            <thead><tr><th>ID</th><th>标题</th><th>内容</th><th>操作</th></tr></thead>
+                            <tbody>
+                                <tr v-for="i in insights" :key="i.id">
+                                    <td>{{ i.id }}</td><td>{{ i.title }}</td>
+                                    <td style="max-width:520px">{{ i.text }}</td>
+                                    <td>
+                                        <button class="btn-sm btn-edit" @click="openInsightModal(i)">编辑</button>
+                                        <button class="btn-sm btn-del" @click="remove('insights', i.id)">删除</button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!insights.length"><td colspan="4" class="empty">暂无数据</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+                </main>
+            </div>
+
+            <!-- 用户弹窗 -->
+            <div v-if="modal === 'user'" class="mask" @click.self="modal = null">
+                <div class="modal">
+                    <h2>{{ form.id ? '编辑账号' : '新增账号' }}</h2>
+                    <div class="form-grid">
+                        <div><label>登录账号 *</label><input v-model="form.username" :disabled="!!form.id" placeholder="如 admin"></div>
+                        <div><label>昵称</label><input v-model="form.name" placeholder="如 Yun"></div>
+                        <div><label>密码 {{ form.id ? '（留空则不修改）' : '*' }}</label><input v-model="form.password" type="password"></div>
+                        <div><label>邮箱</label><input v-model="form.email" placeholder="name@example.com"></div>
+                        <div><label>等级</label>
+                            <select v-model="form.level">
+                                <option>普通用户</option><option>高级用户</option><option>管理员</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <button class="btn btn-cancel" @click="modal = null">取消</button>
+                        <button class="btn btn-primary" @click="saveUser">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 记录弹窗 -->
+            <div v-if="modal === 'record'" class="mask" @click.self="modal = null">
+                <div class="modal">
+                    <h2>{{ form.id ? '编辑健康记录' : '新增健康记录' }}</h2>
+                    <div class="form-grid">
+                        <div><label>记录日期 *</label><input v-model="form.record_date" type="date"></div>
+                        <div><label>步数</label><input v-model.number="form.steps" type="number" min="0"></div>
+                        <div><label>心率 (BPM)</label><input v-model.number="form.heart_rate" type="number" min="0"></div>
+                        <div><label>睡眠 (h)</label><input v-model.number="form.sleep_hours" type="number" step="0.1" min="0"></div>
+                        <div><label>热量 (KCAL)</label><input v-model.number="form.calories" type="number" min="0"></div>
+                        <div><label>水分 (L)</label><input v-model.number="form.water_liters" type="number" step="0.1" min="0"></div>
+                        <div><label>睡眠质量 (%)</label><input v-model.number="form.sleep_quality" type="number" min="0" max="100"></div>
+                        <div><label>运动时长 (min)</label><input v-model.number="form.exercise_minutes" type="number" min="0"></div>
+                        <div><label>体适能评分 (%)</label><input v-model.number="form.fitness_score" type="number" min="0" max="100"></div>
+                        <div class="full"><label>体适能分析文案</label><textarea v-model="form.summary_message"></textarea></div>
+                    </div>
+                    <div class="modal-foot">
+                        <button class="btn btn-cancel" @click="modal = null">取消</button>
+                        <button class="btn btn-primary" @click="saveRecord">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 任务弹窗 -->
+            <div v-if="modal === 'task'" class="mask" @click.self="modal = null">
+                <div class="modal">
+                    <h2>{{ form.id ? '编辑提醒' : '新增提醒' }}</h2>
+                    <div class="form-grid">
+                        <div><label>标题 *</label><input v-model="form.title" placeholder="如 步数目标"></div>
+                        <div><label>状态文字</label><input v-model="form.status" placeholder="如 达标 / 提醒"></div>
+                        <div class="full"><label>详情</label><input v-model="form.detail" placeholder="如 完成率 82%"></div>
+                        <div><label>级别</label>
+                            <select v-model="form.tone">
+                                <option value="normal">普通 (绿)</option>
+                                <option value="warning">提醒 (黄)</option>
+                                <option value="danger">注意 (红)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <button class="btn btn-cancel" @click="modal = null">取消</button>
+                        <button class="btn btn-primary" @click="saveTask">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分析弹窗 -->
+            <div v-if="modal === 'insight'" class="mask" @click.self="modal = null">
+                <div class="modal">
+                    <h2>{{ form.id ? '编辑分析' : '新增分析' }}</h2>
+                    <div class="form-grid">
+                        <div class="full"><label>标题 *</label><input v-model="form.title" placeholder="如 综合评估 / 建议"></div>
+                        <div class="full"><label>内容 *</label><textarea v-model="form.text" style="min-height:90px"></textarea></div>
+                    </div>
+                    <div class="modal-foot">
+                        <button class="btn btn-cancel" @click="modal = null">取消</button>
+                        <button class="btn btn-primary" @click="saveInsight">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toast" :class="{ show: toastMsg, err: toastErr }">{{ toastMsg }}</div>
+        </template>
+
+        <div v-else-if="checked && !authed" class="login-tip">
+            <p style="font-size:16px;margin-bottom:12px">请先登录后再访问后台管理</p>
+            <a href="/login">前往登录 →</a>
+        </div>
+    </div>
+    {% endraw %}
+    <script src="{{ url_for('static', filename='vendor/vue.js') }}"></script>
+    <script>
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+    createApp({
+        setup() {
+            const checked = ref(false);
+            const authed = ref(false);
+            const active = ref("users");
+            const modal = ref(null);
+            const form = reactive({});
+            const toastMsg = ref("");
+            const toastErr = ref(false);
+            const users = ref([]);
+            const records = ref([]);
+            const tasks = ref([]);
+            const insights = ref([]);
+
+            const tabs = [
+                { key: "users", label: "用户管理", desc: "管理可登录前台的账号，密码使用哈希存储。" },
+                { key: "records", label: "健康记录", desc: "管理每日步数、心率、睡眠、热量等指标，驱动前台仪表盘。" },
+                { key: "tasks", label: "提醒任务", desc: "管理前台首页“健康提醒”卡片的内容。" },
+                { key: "insights", label: "健康分析", desc: "管理前台首页“健康分析 / AI 评估”的文案。" },
+            ];
+            const currentTab = computed(() => tabs.find(t => t.key === active.value));
+
+            function toast(msg, isErr = false) {
+                toastMsg.value = msg;
+                toastErr.value = isErr;
+                setTimeout(() => (toastMsg.value = ""), 2200);
+            }
+
+            async function request(url, options = {}) {
+                const res = await fetch(url, {
+                    headers: { "Content-Type": "application/json" },
+                    ...options,
+                });
+                const data = await res.json();
+                if (!res.ok || data.ok === false) throw new Error(data.message || "请求失败");
+                return data;
+            }
+
+            const loaders = {
+                users: async () => (users.value = (await request("/api/admin/users")).data),
+                records: async () => (records.value = (await request("/api/admin/records")).data),
+                tasks: async () => (tasks.value = (await request("/api/admin/tasks")).data),
+                insights: async () => (insights.value = (await request("/api/admin/insights")).data),
+            };
+
+            async function switchTab(key) {
+                active.value = key;
+                await loaders[key]();
+            }
+
+            function fmtDate(v) {
+                return v ? String(v).replace("T", " ").slice(0, 16) : "—";
+            }
+            function toneLabel(tone) {
+                return { normal: "普通", warning: "提醒", danger: "注意" }[tone] || tone;
+            }
+            function todayStr() {
+                return new Date().toISOString().slice(0, 10);
+            }
+
+            // ---- 用户 ----
+            function openUserModal(row) {
+                Object.keys(form).forEach(k => delete form[k]);
+                if (row) Object.assign(form, { ...row, password: "" });
+                else Object.assign(form, { username: "", name: "", password: "", email: "", level: "普通用户" });
+                modal.value = "user";
+            }
+            async function saveUser() {
+                try {
+                    if (form.id) {
+                        const body = { name: form.name, email: form.email, level: form.level };
+                        if (form.password) body.password = form.password;
+                        await request(`/api/admin/users/${form.id}`, { method: "PUT", body: JSON.stringify(body) });
+                    } else {
+                        if (!form.username || !form.password) return toast("账号和密码不能为空", true);
+                        await request("/api/admin/users", { method: "POST", body: JSON.stringify(form) });
+                    }
+                    modal.value = null;
+                    toast("保存成功");
+                    await loaders.users();
+                } catch (e) { toast(e.message, true); }
+            }
+
+            // ---- 记录 ----
+            function openRecordModal(row) {
+                Object.keys(form).forEach(k => delete form[k]);
+                if (row) Object.assign(form, { ...row });
+                else Object.assign(form, {
+                    record_date: todayStr(), steps: 0, heart_rate: 72, sleep_hours: 7.5,
+                    calories: 500, water_liters: 2.0, sleep_quality: 75, exercise_minutes: 30,
+                    fitness_score: 75, summary_message: "",
+                });
+                modal.value = "record";
+            }
+            async function saveRecord() {
+                try {
+                    if (form.id) {
+                        await request(`/api/admin/records/${form.id}`, { method: "PUT", body: JSON.stringify(form) });
+                    } else {
+                        await request("/api/admin/records", { method: "POST", body: JSON.stringify(form) });
+                    }
+                    modal.value = null;
+                    toast("保存成功");
+                    await loaders.records();
+                } catch (e) { toast(e.message, true); }
+            }
+
+            // ---- 任务 ----
+            function openTaskModal(row) {
+                Object.keys(form).forEach(k => delete form[k]);
+                if (row) Object.assign(form, { ...row });
+                else Object.assign(form, { title: "", detail: "", status: "正常", tone: "normal" });
+                modal.value = "task";
+            }
+            async function saveTask() {
+                try {
+                    if (form.id) {
+                        await request(`/api/admin/tasks/${form.id}`, { method: "PUT", body: JSON.stringify(form) });
+                    } else {
+                        if (!form.title) return toast("标题不能为空", true);
+                        await request("/api/admin/tasks", { method: "POST", body: JSON.stringify(form) });
+                    }
+                    modal.value = null;
+                    toast("保存成功");
+                    await loaders.tasks();
+                } catch (e) { toast(e.message, true); }
+            }
+
+            // ---- 分析 ----
+            function openInsightModal(row) {
+                Object.keys(form).forEach(k => delete form[k]);
+                if (row) Object.assign(form, { ...row });
+                else Object.assign(form, { title: "", text: "" });
+                modal.value = "insight";
+            }
+            async function saveInsight() {
+                try {
+                    if (!form.title || !form.text) return toast("标题和内容不能为空", true);
+                    if (form.id) {
+                        await request(`/api/admin/insights/${form.id}`, { method: "PUT", body: JSON.stringify(form) });
+                    } else {
+                        await request("/api/admin/insights", { method: "POST", body: JSON.stringify(form) });
+                    }
+                    modal.value = null;
+                    toast("保存成功");
+                    await loaders.insights();
+                } catch (e) { toast(e.message, true); }
+            }
+
+            async function remove(type, id) {
+                if (!confirm("确定删除这条数据吗？")) return;
+                try {
+                    await request(`/api/admin/${type}/${id}`, { method: "DELETE" });
+                    toast("删除成功");
+                    await loaders[type]();
+                } catch (e) { toast(e.message, true); }
+            }
+
+            async function logout() {
+                await request("/api/logout", { method: "POST" });
+                location.href = "/login";
+            }
+
+            onMounted(async () => {
+                try {
+                    const auth = await request("/api/auth");
+                    authed.value = auth.authenticated;
+                    if (auth.authenticated) await loaders.users();
+                } catch (e) {
+                    authed.value = false;
+                } finally {
+                    checked.value = true;
+                }
+            });
+
+            return {
+                checked, authed, active, tabs, currentTab, modal, form, toastMsg, toastErr,
+                users, records, tasks, insights,
+                switchTab, fmtDate, toneLabel,
+                openUserModal, saveUser, openRecordModal, saveRecord,
+                openTaskModal, saveTask, openInsightModal, saveInsight,
+                remove, logout,
+            };
+        },
+    }).mount("#admin");
+    </script>
+</body>
+</html>
