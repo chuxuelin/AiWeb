@@ -48,6 +48,18 @@ def create_database_and_tables():
         connection.close()
 
 
+def apply_schema_updates():
+    """为已有数据库补充新字段，重复执行不会报错。"""
+    with db.get_connection() as connection:
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute("ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL")
+            except pymysql.err.OperationalError as error:
+                if error.args[0] != 1060:
+                    raise
+    print("       用户头像字段就绪")
+
+
 def seed_users(cursor):
     """初始管理员账号: admin / 123"""
     password_hash = generate_password_hash("123")
@@ -59,7 +71,7 @@ def seed_users(cursor):
             password_hash = VALUES(password_hash),
             name = VALUES(name), email = VALUES(email), level = VALUES(level)
         """,
-        ("admin", password_hash, "Yun", "admin@movewell.app", "高级用户"),
+        ("admin", password_hash, "Yun", "admin@movewell.app", "管理员"),
     )
     cursor.execute("SELECT id FROM users WHERE username = %s", ("admin",))
     admin_id = cursor.fetchone()["id"]
@@ -155,6 +167,7 @@ def main():
           f" / 数据库 {db.connection_config()['database']}")
     print("=" * 50)
     create_database_and_tables()
+    apply_schema_updates()
     seed_data()
     print("-" * 50)
     print("全部完成! 现在可以启动: python app.py")

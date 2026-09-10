@@ -70,13 +70,14 @@
                 </nav>
                 <div class="profile-wrap">
                     <button class="profile-button" type="button" @click="profileOpen = !profileOpen">
-                        <span class="avatar">Y</span>
+                        <img v-if="dashboard.user.avatar" class="avatar" :src="dashboard.user.avatar" alt="用户头像">
+                        <span v-else class="avatar">{{ avatarLetter }}</span>
                         <span><strong>{{ formattedUser }}</strong><small class="small-text">{{ dashboard.user.level }}</small></span>
                     </button>
                     <div v-if="profileOpen" class="profile-menu">
-                        <button type="button">个人中心</button>
+                        <button type="button" @click="openProfile">个人中心</button>
                         <button type="button">设置</button>
-                        <button type="button" @click="goAdmin">后台数据管理</button>
+                        <button v-if="dashboard.user.is_admin" type="button" @click="goAdmin">后台数据管理</button>
                         <button class="logout" type="button" @click="logout">退出登录</button>
                     </div>
                 </div>
@@ -141,6 +142,24 @@
                 <div class="qr-box"></div>
                 <p>请打开微信“扫一扫”，扫描二维码后同步当前步数数据。</p>
                 <button class="primary-button" type="button" @click="scanOpen = false; syncSteps()">已同步</button>
+            </section>
+        </div>
+
+        <div v-if="profileModal" class="modal-backdrop" @click.self="profileModal = false">
+            <section class="modal profile-modal">
+                <h2>个人中心</h2>
+                <label class="avatar-picker" for="avatar-file">
+                    <img v-if="profilePreview" class="avatar-large" :src="profilePreview" alt="头像预览">
+                    <span v-else class="avatar-large avatar-fallback">{{ avatarLetter }}</span>
+                    <span>点击上传头像</span>
+                </label>
+                <input id="avatar-file" class="visually-hidden" type="file" accept="image/*" @change="selectAvatar">
+                <label class="profile-label" for="profile-name">昵称</label>
+                <input id="profile-name" v-model="profileName" class="profile-input" maxlength="50">
+                <p v-if="profileError" class="profile-error">{{ profileError }}</p>
+                <button class="primary-button" type="button" :disabled="profileSaving" @click="saveProfile">
+                    {{ profileSaving ? '保存中...' : '保存资料' }}
+                </button>
             </section>
         </div>
     </div>

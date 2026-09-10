@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `name`          VARCHAR(50)  NOT NULL COMMENT '昵称',
   `email`         VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
   `level`         VARCHAR(20)  NOT NULL DEFAULT '普通用户' COMMENT '用户等级',
+  `avatar`        LONGTEXT     DEFAULT NULL COMMENT '头像图片 Data URL',
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_users_username` (`username`)

@@ -1,5 +1,7 @@
+import base64
 import datetime as dt
 from decimal import Decimal
+from functools import wraps
 
 import flask
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -8,6 +10,7 @@ import db
 
 app = flask.Flask(__name__, template_folder="templates")
 app.secret_key = "health-demo-secret"
+app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024
 
 
 # ----------------------------------------------------------------------
@@ -19,6 +22,30 @@ def api_error(message, status=400):
 
 def login_required():
     return flask.session.get("user_id") is not None
+
+
+def is_admin():
+    user_id = flask.session.get("user_id")
+    if user_id is None:
+        return False
+    user = db.fetch_one("SELECT level FROM users WHERE id = %s", (user_id,))
+    return bool(user and user["level"] == "管理员")
+
+
+def admin_only(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not login_required():
+            if flask.request.path.startswith("/api/"):
+                return api_error("请先登录", 401)
+            flask.abort(403)
+        if not is_admin():
+            if flask.request.path.startswith("/api/"):
+                return api_error("仅管理员可以访问后台数据", 403)
+            flask.abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 def to_jsonable(value):
@@ -58,6 +85,7 @@ def index():
 
 
 @app.route("/admin")
+@admin_only
 def admin_page():
     return flask.render_template("admin.html")
 
@@ -68,9 +96,14 @@ def admin_page():
 @app.get("/api/auth")
 def auth_state():
     logged_in = login_required()
+    user = db.fetch_one(
+        "SELECT username, level FROM users WHERE id = %s",
+        (flask.session.get("user_id"),),
+    ) if logged_in else None
     return flask.jsonify({
         "authenticated": logged_in,
-        "user": {"email": flask.session.get("username")} if logged_in else None,
+        "is_admin": bool(user and user["level"] == "管理员"),
+        "user": {"email": user["username"], "level": user["level"]} if user else None,
     })
 
 
@@ -96,6 +129,50 @@ def login_api():
 def logout_api():
     flask.session.clear()
     return flask.jsonify({"ok": True})
+
+
+@app.put("/api/profile")
+def profile_update_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+
+    name = flask.request.form.get("name", "").strip()
+    avatar_file = flask.request.files.get("avatar")
+    fields, params = [], []
+    if name:
+        fields.append("name = %s")
+        params.append(name)
+    if avatar_file and avatar_file.filename:
+        if not avatar_file.content_type or not avatar_file.content_type.startswith("image/"):
+            return api_error("请选择图片文件")
+        image_data = avatar_file.read(2 * 1024 * 1024 + 1)
+        if len(image_data) > 2 * 1024 * 1024:
+            return api_error("头像图片不能超过 2MB")
+        avatar = (
+            f"data:{avatar_file.content_type};base64,"
+            f"{base64.b64encode(image_data).decode('ascii')}"
+        )
+        fields.append("avatar = %s")
+        params.append(avatar)
+    if not fields:
+        return api_error("没有需要更新的资料")
+
+    params.append(flask.session["user_id"])
+    db.execute(
+        f"UPDATE users SET {', '.join(fields)} WHERE id = %s",
+        tuple(params),
+    )
+    user = db.fetch_one(
+        "SELECT name, username, level, avatar FROM users WHERE id = %s",
+        (flask.session["user_id"],),
+    )
+    return flask.jsonify({"ok": True, "user": {
+        "name": user["name"],
+        "email": user["username"],
+        "level": user["level"],
+        "is_admin": user["level"] == "管理员",
+        "avatar": user["avatar"],
+    }})
 
 
 # ----------------------------------------------------------------------
@@ -166,7 +243,13 @@ def dashboard_api():
 
     today_row = today_row or {}
     return flask.jsonify({
-        "user": {"name": user["name"], "email": user["username"], "level": user["level"]},
+        "user": {
+            "name": user["name"],
+            "email": user["username"],
+            "level": user["level"],
+            "is_admin": user["level"] == "管理员",
+            "avatar": user.get("avatar"),
+        },
         "summary": {
             "fitness": int(today_row.get("fitness_score", 0)),
             "message": today_row.get("summary_message") or "今日暂无健康记录，请在后台添加。",
@@ -210,6 +293,7 @@ def sync_steps_api():
 # 后台管理 API —— 用户管理
 # ----------------------------------------------------------------------
 @app.get("/api/admin/users")
+@admin_only
 def admin_list_users():
     if not login_required():
         return api_error("请先登录", 401)
@@ -220,6 +304,7 @@ def admin_list_users():
 
 
 @app.post("/api/admin/users")
+@admin_only
 def admin_create_user():
     if not login_required():
         return api_error("请先登录", 401)
@@ -240,6 +325,7 @@ def admin_create_user():
 
 
 @app.put("/api/admin/users/<int:user_id>")
+@admin_only
 def admin_update_user(user_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -260,6 +346,7 @@ def admin_update_user(user_id):
 
 
 @app.delete("/api/admin/users/<int:user_id>")
+@admin_only
 def admin_delete_user(user_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -279,6 +366,7 @@ RECORD_FIELDS = [
 
 
 @app.get("/api/admin/records")
+@admin_only
 def admin_list_records():
     if not login_required():
         return api_error("请先登录", 401)
@@ -291,6 +379,7 @@ def admin_list_records():
 
 
 @app.post("/api/admin/records")
+@admin_only
 def admin_create_record():
     if not login_required():
         return api_error("请先登录", 401)
@@ -312,6 +401,7 @@ def admin_create_record():
 
 
 @app.put("/api/admin/records/<int:record_id>")
+@admin_only
 def admin_update_record(record_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -329,6 +419,7 @@ def admin_update_record(record_id):
 
 
 @app.delete("/api/admin/records/<int:record_id>")
+@admin_only
 def admin_delete_record(record_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -340,6 +431,7 @@ def admin_delete_record(record_id):
 # 后台管理 API —— 健康提醒任务
 # ----------------------------------------------------------------------
 @app.get("/api/admin/tasks")
+@admin_only
 def admin_list_tasks():
     if not login_required():
         return api_error("请先登录", 401)
@@ -351,6 +443,7 @@ def admin_list_tasks():
 
 
 @app.post("/api/admin/tasks")
+@admin_only
 def admin_create_task():
     if not login_required():
         return api_error("请先登录", 401)
@@ -368,6 +461,7 @@ def admin_create_task():
 
 
 @app.put("/api/admin/tasks/<int:task_id>")
+@admin_only
 def admin_update_task(task_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -385,6 +479,7 @@ def admin_update_task(task_id):
 
 
 @app.delete("/api/admin/tasks/<int:task_id>")
+@admin_only
 def admin_delete_task(task_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -396,6 +491,7 @@ def admin_delete_task(task_id):
 # 后台管理 API —— 健康分析/建议
 # ----------------------------------------------------------------------
 @app.get("/api/admin/insights")
+@admin_only
 def admin_list_insights():
     if not login_required():
         return api_error("请先登录", 401)
@@ -407,6 +503,7 @@ def admin_list_insights():
 
 
 @app.post("/api/admin/insights")
+@admin_only
 def admin_create_insight():
     if not login_required():
         return api_error("请先登录", 401)
@@ -424,6 +521,7 @@ def admin_create_insight():
 
 
 @app.put("/api/admin/insights/<int:insight_id>")
+@admin_only
 def admin_update_insight(insight_id):
     if not login_required():
         return api_error("请先登录", 401)
@@ -441,6 +539,7 @@ def admin_update_insight(insight_id):
 
 
 @app.delete("/api/admin/insights/<int:insight_id>")
+@admin_only
 def admin_delete_insight(insight_id):
     if not login_required():
         return api_error("请先登录", 401)

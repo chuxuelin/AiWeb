@@ -61,7 +61,7 @@
 <body>
     {% raw %}
     <div id="admin">
-        <template v-if="checked && authed">
+        <template v-if="checked && isAdmin">
             <header class="topbar">
                 <div class="brand">MoveWell <span>后台数据管理</span></div>
                 <div class="actions">
@@ -261,9 +261,9 @@
             <div class="toast" :class="{ show: toastMsg, err: toastErr }">{{ toastMsg }}</div>
         </template>
 
-        <div v-else-if="checked && !authed" class="login-tip">
-            <p style="font-size:16px;margin-bottom:12px">请先登录后再访问后台管理</p>
-            <a href="/login">前往登录 →</a>
+        <div v-else-if="checked" class="login-tip">
+            <p style="font-size:16px;margin-bottom:12px">仅管理员可以访问后台数据</p>
+            <a href="/">返回前台 →</a>
         </div>
     </div>
     {% endraw %}
@@ -274,7 +274,7 @@
     createApp({
         setup() {
             const checked = ref(false);
-            const authed = ref(false);
+            const isAdmin = ref(false);
             const active = ref("users");
             const modal = ref(null);
             const form = reactive({});
@@ -437,17 +437,17 @@
             onMounted(async () => {
                 try {
                     const auth = await request("/api/auth");
-                    authed.value = auth.authenticated;
-                    if (auth.authenticated) await loaders.users();
+                    isAdmin.value = auth.authenticated && auth.is_admin;
+                    if (isAdmin.value) await loaders.users();
                 } catch (e) {
-                    authed.value = false;
+                    isAdmin.value = false;
                 } finally {
                     checked.value = true;
                 }
             });
 
             return {
-                checked, authed, active, tabs, currentTab, modal, form, toastMsg, toastErr,
+                checked, isAdmin, active, tabs, currentTab, modal, form, toastMsg, toastErr,
                 users, records, tasks, insights,
                 switchTab, fmtDate, toneLabel,
                 openUserModal, saveUser, openRecordModal, saveRecord,
