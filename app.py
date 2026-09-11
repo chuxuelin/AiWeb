@@ -651,6 +651,190 @@ def community_follow_api(user_id):
                           "followers_count": followers["total"]})
 
 
+@app.get("/api/messages/<int:user_id>")
+def private_messages_api(user_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    current_user_id = flask.session["user_id"]
+    if current_user_id == user_id:
+        return api_error("不能给自己发送私信")
+    if not db.fetch_one("SELECT id FROM users WHERE id = %s", (user_id,)):
+        return api_error("用户不存在", 404)
+    db.execute(
+        """UPDATE private_messages SET read_at = NOW()
+           WHERE sender_id = %s AND recipient_id = %s AND read_at IS NULL""",
+        (user_id, current_user_id),
+    )
+    rows = db.fetch_all(
+          """SELECT m.id, m.sender_id, m.recipient_id, m.content, m.message_type,
+                        m.image_data, m.reply_to_id, m.reply_content, m.created_at,
+                        sender.avatar AS sender_avatar, recipient.avatar AS recipient_avatar
+              FROM private_messages m
+              JOIN users sender ON sender.id = m.sender_id
+              JOIN users recipient ON recipient.id = m.recipient_id
+            WHERE (m.sender_id = %s AND m.recipient_id = %s)
+                OR (m.sender_id = %s AND m.recipient_id = %s)
+              ORDER BY m.created_at ASC, m.id ASC LIMIT 200""",
+        (current_user_id, user_id, user_id, current_user_id),
+    )
+    messages = []
+    for row in rows:
+        message = serialize(row)
+        message["mine"] = row["sender_id"] == current_user_id
+        messages.append(message)
+    return flask.jsonify({"ok": True, "messages": messages})
+
+
+@app.post("/api/messages/<int:user_id>")
+def private_message_create_api(user_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    current_user_id = flask.session["user_id"]
+    if current_user_id == user_id:
+        return api_error("不能给自己发送私信")
+    if not db.fetch_one("SELECT id FROM users WHERE id = %s", (user_id,)):
+        return api_error("用户不存在", 404)
+    payload = flask.request.get_json(silent=True) or {}
+    content = str(payload.get("content", "")).strip()
+    message_type = "text"
+    image_data = None
+    reply_to_id = None
+    reply_content = None
+    if flask.request.files:
+        content = flask.request.form.get("content", "").strip()
+        image_file = flask.request.files.get("image")
+        if image_file and image_file.filename:
+            if not image_file.content_type or not image_file.content_type.startswith("image/"):
+                return api_error("只能发送图片文件")
+            image_bytes = image_file.read()
+            if len(image_bytes) > 2 * 1024 * 1024:
+                return api_error("图片不能超过 2MB")
+            image_data = "data:{};base64,{}".format(
+                image_file.content_type, base64.b64encode(image_bytes).decode("ascii")
+            )
+            message_type = "image"
+        reply_to_id = flask.request.form.get("reply_to_id") or None
+        reply_content = flask.request.form.get("reply_content", "").strip() or None
+    else:
+        reply_to_id = payload.get("reply_to_id") or None
+        reply_content = str(payload.get("reply_content", "")).strip() or None
+    if not content and not image_data:
+        return api_error("消息内容不能为空")
+    if len(content) > 2000 or len(reply_content or "") > 2000:
+        return api_error("消息不能超过 2000 个字符")
+    try:
+        reply_to_id = int(reply_to_id) if reply_to_id else None
+    except (TypeError, ValueError):
+        return api_error("引用消息无效")
+    message_id = db.execute(
+        """INSERT INTO private_messages (sender_id, recipient_id, content,
+                  message_type, image_data, reply_to_id, reply_content)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (current_user_id, user_id, content or None, message_type, image_data,
+         reply_to_id, reply_content),
+    )
+    message = db.fetch_one(
+          """SELECT m.id, m.sender_id, m.recipient_id, m.content, m.message_type,
+                        m.image_data, m.reply_to_id, m.reply_content, m.created_at,
+                        sender.avatar AS sender_avatar, recipient.avatar AS recipient_avatar
+              FROM private_messages m
+              JOIN users sender ON sender.id = m.sender_id
+              JOIN users recipient ON recipient.id = m.recipient_id
+              WHERE m.id = %s""",
+        (message_id,),
+    )
+    serialized_message = serialize(message)
+    serialized_message["mine"] = True
+    return flask.jsonify({"ok": True, "message": serialized_message})
+
+
+@app.get("/api/social/summary")
+def social_summary_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+    current_user_id = flask.session["user_id"]
+    read_rows = db.fetch_all(
+        "SELECT category, read_at FROM social_reads WHERE user_id = %s",
+        (current_user_id,),
+    )
+    read_at = {row["category"]: row["read_at"] for row in read_rows}
+    default_read_at = dt.datetime(1970, 1, 1, tzinfo=APP_TIMEZONE).replace(tzinfo=None)
+    followers_read_at = read_at.get("followers", default_read_at)
+    notifications_read_at = read_at.get("notifications", default_read_at)
+    followers = db.fetch_all(
+        """SELECT u.id, u.name, u.nickname, u.avatar
+           FROM community_follows f JOIN users u ON u.id = f.follower_id
+           WHERE f.following_id = %s ORDER BY f.created_at DESC LIMIT 20""",
+        (current_user_id,),
+    )
+    message_rows = db.fetch_all(
+        """SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at,
+                  u.id AS user_id, u.name, u.nickname, u.avatar
+           FROM private_messages m
+           JOIN users u ON u.id = IF(m.sender_id = %s, m.recipient_id, m.sender_id)
+           WHERE m.sender_id = %s OR m.recipient_id = %s
+           ORDER BY m.created_at DESC, m.id DESC LIMIT 200""",
+        (current_user_id, current_user_id, current_user_id),
+    )
+    conversations = {}
+    for row in message_rows:
+        key = row["user_id"]
+        if key not in conversations:
+            conversations[key] = serialize(row)
+    notifications = db.fetch_all(
+        """SELECT id, title, content, created_at
+           FROM official_notifications ORDER BY created_at DESC, id DESC LIMIT 20"""
+    )
+    unread_followers = db.fetch_one(
+        """SELECT COUNT(*) AS total FROM community_follows
+           WHERE following_id = %s AND created_at > %s""",
+        (current_user_id, followers_read_at),
+    )["total"]
+    unread_messages = db.fetch_one(
+        """SELECT COUNT(*) AS total FROM private_messages
+           WHERE recipient_id = %s AND read_at IS NULL""",
+        (current_user_id,),
+    )["total"]
+    unread_notifications = db.fetch_one(
+        """SELECT COUNT(*) AS total FROM official_notifications
+           WHERE created_at > %s""",
+        (notifications_read_at,),
+    )["total"]
+    return flask.jsonify({
+        "ok": True,
+        "followers": [serialize(row) for row in followers],
+        "conversations": list(conversations.values()),
+        "notifications": [serialize(row) for row in notifications],
+        "unread": {
+            "followers": int(unread_followers),
+            "messages": int(unread_messages),
+            "notifications": int(unread_notifications),
+        },
+    })
+
+
+@app.post("/api/social/read/<category>")
+def social_mark_read_api(category):
+    if not login_required():
+        return api_error("请先登录", 401)
+    if category not in {"followers", "messages", "notifications"}:
+        return api_error("不支持的消息类型")
+    current_user_id = flask.session["user_id"]
+    if category == "messages":
+        db.execute(
+            """UPDATE private_messages SET read_at = NOW()
+               WHERE recipient_id = %s AND read_at IS NULL""",
+            (current_user_id,),
+        )
+    db.execute(
+        """INSERT INTO social_reads (user_id, category, read_at)
+           VALUES (%s, %s, NOW())
+           ON DUPLICATE KEY UPDATE read_at = NOW()""",
+        (current_user_id, category),
+    )
+    return flask.jsonify({"ok": True})
+
+
 @app.post("/api/community/posts")
 def community_create_post_api():
     if not login_required():
@@ -760,6 +944,18 @@ def admin_update_user(user_id):
         return api_error("请先登录", 401)
     payload = flask.request.get_json(silent=True) or {}
     fields, params = [], []
+    username = str(payload.get("username", "")).strip()
+    if "username" in payload:
+        if not username:
+            return api_error("登录账号不能为空")
+        duplicate = db.fetch_one(
+            "SELECT id FROM users WHERE username = %s AND id <> %s",
+            (username, user_id),
+        )
+        if duplicate:
+            return api_error("登录账号已存在")
+        fields.append("username = %s")
+        params.append(username)
     for column in ("name", "email", "level"):
         if column in payload:
             fields.append(f"{column} = %s")
@@ -977,7 +1173,7 @@ def admin_delete_insight(insight_id):
 
 
 if __name__ == "__main__":
-    # Railway 会自动注入 PORT 环境变量；本地测试时默认用 8080
+    # 支持通过 PORT 覆盖服务端口，本地默认使用 8080。
     app.run(
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8080")),

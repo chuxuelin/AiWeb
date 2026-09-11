@@ -180,7 +180,7 @@
                 <div class="modal">
                     <h2>{{ form.id ? '编辑账号' : '新增账号' }}</h2>
                     <div class="form-grid">
-                        <div><label>登录账号 *</label><input v-model="form.username" :disabled="!!form.id" placeholder="如 admin"></div>
+                        <div><label>登录账号 *</label><input v-model="form.username" placeholder="如 admin"></div>
                         <div><label>昵称</label><input v-model="form.name" placeholder="如 Yun"></div>
                         <div><label>密码 {{ form.id ? '（留空则不修改）' : '*' }}</label><input v-model="form.password" type="password"></div>
                         <div><label>邮箱</label><input v-model="form.email" placeholder="name@example.com"></div>
@@ -341,7 +341,7 @@
             async function saveUser() {
                 try {
                     if (form.id) {
-                        const body = { name: form.name, email: form.email, level: form.level };
+                        const body = { username: form.username, name: form.name, email: form.email, level: form.level };
                         if (form.password) body.password = form.password;
                         await request(`/api/admin/users/${form.id}`, { method: "PUT", body: JSON.stringify(body) });
                     } else {

@@ -36,6 +36,23 @@ createApp({
         const communityDrafts = ref({});
         const communityCommentOpen = ref({});
         const communityProfile = ref(null);
+        const privateMessageUser = ref(null);
+        const privateMessageDraft = ref("");
+        const privateMessages = ref([]);
+        const privateMessageLoading = ref(false);
+        const privateMessageSending = ref(false);
+        const privateMessageError = ref("");
+        const privateMessageReply = ref(null);
+        const privateImageFile = ref(null);
+        const privateImagePreview = ref("");
+        const privateEmojiOpen = ref(false);
+        const privateEmojis = ["😀", "😂", "😍", "🥳", "👍", "👏", "❤️", "🎉", "😅", "🤔", "🙏", "💪"];
+        const socialCenterOpen = ref(false);
+        const socialTab = ref("followers");
+        const socialLoading = ref(false);
+        const socialError = ref("");
+        const socialData = ref({ followers: [], conversations: [], notifications: [] });
+        const socialUnread = ref({ followers: 0, messages: 0, notifications: 0 });
         const credentials = ref({ email: "admin", password: "123" });
         const navItems = [
             { key: "home", label: "首页", icon: "⌂", description: "综合健康概览" },
@@ -74,6 +91,46 @@ createApp({
         async function loadDashboard() {
             dashboard.value = await request("/api/dashboard");
             view.value = "dashboard";
+            loadSocialCenter();
+        }
+
+        async function loadSocialCenter() {
+            socialLoading.value = true;
+            socialError.value = "";
+            try {
+                socialData.value = await request("/api/social/summary");
+                socialUnread.value = socialData.value.unread || { followers: 0, messages: 0, notifications: 0 };
+            } catch (requestError) {
+                socialError.value = requestError.message;
+            } finally {
+                socialLoading.value = false;
+            }
+        }
+
+        async function openSocialCenter(tab) {
+            profileOpen.value = false;
+            if (socialCenterOpen.value && socialTab.value === tab) {
+                socialCenterOpen.value = false;
+                return;
+            }
+            socialTab.value = tab;
+            socialCenterOpen.value = true;
+            await request(`/api/social/read/${tab}`, { method: "POST" });
+            socialUnread.value[tab] = 0;
+            await loadSocialCenter();
+        }
+
+        async function openSocialProfile(userId) {
+            socialCenterOpen.value = false;
+            activeNav.value = "community";
+            await openCommunityProfile(userId);
+        }
+
+        async function openSocialConversation(userId) {
+            socialCenterOpen.value = false;
+            activeNav.value = "community";
+            await openCommunityProfile(userId);
+            await openPrivateMessage();
         }
 
         async function loadExercises(showAll = exerciseHistoryAll.value) {
@@ -103,6 +160,95 @@ createApp({
 
         function closeCommunityProfile() {
             communityProfile.value = null;
+        }
+
+        async function openPrivateMessage() {
+            privateMessageUser.value = communityProfile.value?.user || null;
+            privateMessageDraft.value = "";
+            privateMessageReply.value = null;
+            clearPrivateImage();
+            privateEmojiOpen.value = false;
+            privateMessages.value = [];
+            privateMessageError.value = "";
+            if (!privateMessageUser.value) return;
+            privateMessageLoading.value = true;
+            try {
+                const result = await request(`/api/messages/${privateMessageUser.value.id}`);
+                privateMessages.value = result.messages;
+            } catch (requestError) {
+                privateMessageError.value = requestError.message;
+            } finally {
+                privateMessageLoading.value = false;
+            }
+        }
+
+        function closePrivateMessage() {
+            privateMessageUser.value = null;
+            privateMessageDraft.value = "";
+            privateMessages.value = [];
+            privateMessageError.value = "";
+            privateMessageReply.value = null;
+            clearPrivateImage();
+            privateEmojiOpen.value = false;
+        }
+
+        function quotePrivateMessage(message) {
+            privateMessageReply.value = message;
+            privateMessageDraft.value = "";
+        }
+
+        function selectPrivateImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.size > 2 * 1024 * 1024) {
+                privateMessageError.value = "图片不能超过 2MB";
+                return;
+            }
+            privateImageFile.value = file;
+            privateImagePreview.value = URL.createObjectURL(file);
+            privateMessageError.value = "";
+        }
+
+        function clearPrivateImage() {
+            privateImageFile.value = null;
+            privateImagePreview.value = "";
+        }
+
+        function appendPrivateEmoji(emoji) {
+            privateMessageDraft.value += emoji;
+            privateEmojiOpen.value = false;
+        }
+
+        async function sendPrivateMessage() {
+            const content = privateMessageDraft.value.trim();
+            if ((!content && !privateImageFile.value) || !privateMessageUser.value || privateMessageSending.value) return;
+            privateMessageSending.value = true;
+            privateMessageError.value = "";
+            try {
+                const body = privateImageFile.value ? new FormData() : JSON.stringify({
+                    content,
+                    reply_to_id: privateMessageReply.value?.id || "",
+                    reply_content: privateMessageReply.value?.content || "",
+                });
+                if (privateImageFile.value) {
+                    body.append("content", content);
+                    body.append("image", privateImageFile.value);
+                    if (privateMessageReply.value) {
+                        body.append("reply_to_id", privateMessageReply.value.id);
+                        body.append("reply_content", privateMessageReply.value.content || "图片");
+                    }
+                }
+                const result = await request(`/api/messages/${privateMessageUser.value.id}`, { method: "POST", body });
+                privateMessages.value.push(result.message);
+                privateMessageDraft.value = "";
+                privateMessageReply.value = null;
+                clearPrivateImage();
+                privateEmojiOpen.value = false;
+            } catch (requestError) {
+                privateMessageError.value = requestError.message;
+            } finally {
+                privateMessageSending.value = false;
+            }
         }
 
         async function toggleCommunityFollow() {
@@ -417,6 +563,22 @@ createApp({
             communityDrafts,
             communityCommentOpen,
             communityProfile,
+            privateMessageUser,
+            privateMessageDraft,
+            privateMessages,
+            privateMessageLoading,
+            privateMessageSending,
+            privateMessageError,
+            privateMessageReply,
+            privateImagePreview,
+            privateEmojiOpen,
+            privateEmojis,
+            socialCenterOpen,
+            socialTab,
+            socialLoading,
+            socialError,
+            socialData,
+            socialUnread,
             credentials,
             isDashboard,
             formattedUser,
@@ -446,6 +608,16 @@ createApp({
             createCommunityComment,
             openCommunityProfile,
             closeCommunityProfile,
+            openPrivateMessage,
+            closePrivateMessage,
+            sendPrivateMessage,
+            quotePrivateMessage,
+            selectPrivateImage,
+            clearPrivateImage,
+            appendPrivateEmoji,
+            openSocialCenter,
+            openSocialProfile,
+            openSocialConversation,
             toggleCommunityFollow,
             toggleExerciseHistory,
             filterExerciseHistory,

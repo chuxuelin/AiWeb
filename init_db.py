@@ -53,6 +53,44 @@ def apply_schema_updates():
     with db.get_connection() as connection:
         with connection.cursor() as cursor:
             for statement in (
+                """CREATE TABLE IF NOT EXISTS private_messages (
+                    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    sender_id INT UNSIGNED NOT NULL,
+                    recipient_id INT UNSIGNED NOT NULL,
+                    content VARCHAR(2000) DEFAULT NULL,
+                    message_type VARCHAR(20) NOT NULL DEFAULT 'text',
+                    image_data LONGTEXT NULL,
+                    reply_to_id INT UNSIGNED NULL,
+                    reply_content VARCHAR(2000) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    read_at DATETIME DEFAULT NULL,
+                    PRIMARY KEY (id),
+                    KEY idx_messages_conversation (sender_id, recipient_id, created_at),
+                    KEY idx_messages_recipient (recipient_id, created_at),
+                    CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE,
+                    CONSTRAINT fk_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users (id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+                "ALTER TABLE private_messages MODIFY COLUMN content VARCHAR(2000) NULL",
+                "ALTER TABLE private_messages ADD COLUMN message_type VARCHAR(20) NOT NULL DEFAULT 'text'",
+                "ALTER TABLE private_messages ADD COLUMN image_data LONGTEXT NULL",
+                "ALTER TABLE private_messages ADD COLUMN reply_to_id INT UNSIGNED NULL",
+                "ALTER TABLE private_messages ADD COLUMN reply_content VARCHAR(2000) NULL",
+                """CREATE TABLE IF NOT EXISTS official_notifications (
+                    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    code VARCHAR(80) NOT NULL,
+                    title VARCHAR(150) NOT NULL,
+                    content VARCHAR(1000) NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    UNIQUE KEY uk_official_notification_code (code)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+                """CREATE TABLE IF NOT EXISTS social_reads (
+                    user_id INT UNSIGNED NOT NULL,
+                    category VARCHAR(20) NOT NULL,
+                    read_at DATETIME NOT NULL,
+                    PRIMARY KEY (user_id, category),
+                    CONSTRAINT fk_social_reads_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
                 "ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL",
                 "ALTER TABLE users ADD COLUMN nickname VARCHAR(50) NULL",
                 "ALTER TABLE users ADD COLUMN bio VARCHAR(255) NULL",
@@ -235,6 +273,17 @@ def seed_insights(cursor, user_id):
     print("       健康分析建议: 2 条")
 
 
+def seed_official_notifications(cursor):
+    cursor.execute(
+        """INSERT INTO official_notifications (code, title, content)
+           VALUES (%s, %s, %s)
+           ON DUPLICATE KEY UPDATE title = VALUES(title), content = VALUES(content)""",
+        ("welcome-community", "欢迎来到 MoveWell 社区",
+         "完善个人资料，分享你的训练记录，和更多运动伙伴一起坚持。"),
+    )
+    print("       官方通知就绪")
+
+
 def seed_data():
     with db.get_connection() as connection:
         with connection.cursor() as cursor:
@@ -242,6 +291,7 @@ def seed_data():
             seed_daily_health(cursor, admin_id)
             seed_tasks(cursor, admin_id)
             seed_insights(cursor, admin_id)
+            seed_official_notifications(cursor)
             test_user_ids = seed_test_users(cursor)
             for user_id in test_user_ids:
                 seed_daily_health(cursor, user_id)

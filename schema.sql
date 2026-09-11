@@ -149,3 +149,42 @@ CREATE TABLE IF NOT EXISTS `community_follows` (
   CONSTRAINT `fk_follows_follower` FOREIGN KEY (`follower_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_follows_following` FOREIGN KEY (`following_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动社区关注关系';
+
+-- ------------------------------------------------------------
+-- 私信
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `private_messages` (
+  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `sender_id`    INT UNSIGNED NOT NULL COMMENT '发送者',
+  `recipient_id` INT UNSIGNED NOT NULL COMMENT '接收者',
+  `content`      VARCHAR(2000) DEFAULT NULL COMMENT '文字消息内容',
+  `message_type` VARCHAR(20) NOT NULL DEFAULT 'text' COMMENT '消息类型: text/image',
+  `image_data`   LONGTEXT DEFAULT NULL COMMENT '图片 Data URL',
+  `reply_to_id`  INT UNSIGNED DEFAULT NULL COMMENT '引用的消息 ID',
+  `reply_content` VARCHAR(2000) DEFAULT NULL COMMENT '引用消息快照',
+  `created_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `read_at`      DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_messages_conversation` (`sender_id`, `recipient_id`, `created_at`),
+  KEY `idx_messages_recipient` (`recipient_id`, `created_at`),
+  CONSTRAINT `fk_messages_sender` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_messages_recipient` FOREIGN KEY (`recipient_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户私信';
+
+CREATE TABLE IF NOT EXISTS `official_notifications` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`       VARCHAR(80) NOT NULL,
+  `title`      VARCHAR(150) NOT NULL,
+  `content`    VARCHAR(1000) NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_official_notification_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='官方通知';
+
+CREATE TABLE IF NOT EXISTS `social_reads` (
+  `user_id`   INT UNSIGNED NOT NULL,
+  `category`  VARCHAR(20) NOT NULL,
+  `read_at`   DATETIME NOT NULL,
+  PRIMARY KEY (`user_id`, `category`),
+  CONSTRAINT `fk_social_reads_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息中心已读状态';
