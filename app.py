@@ -1,17 +1,48 @@
 import base64
 import datetime as dt
+import json
 import os
+import re
+import secrets
 from decimal import Decimal
 from functools import wraps
+from urllib.parse import parse_qs, quote, urlencode
+from zoneinfo import ZoneInfo
 
 import flask
+import requests
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
 
 app = flask.Flask(__name__, template_folder="templates")
-app.secret_key = "health-demo-secret"
+app.secret_key = os.getenv("SECRET_KEY", "health-demo-secret")
 app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024
+APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai"))
+
+
+@app.errorhandler(db.DatabaseError)
+def database_error(error):
+    app.logger.exception("Database request failed: %s", error)
+    if flask.request.path.startswith("/api/"):
+        return api_error("数据库字段可能未更新，请先运行 python init_db.py", 500)
+    return "数据库暂时不可用，请稍后重试。", 500
+
+
+OAUTH_PROVIDERS = {
+    "wechat": {
+        "client_id": "WECHAT_APP_ID",
+        "client_secret": "WECHAT_APP_SECRET",
+        "authorize_url": "https://open.weixin.qq.com/connect/qrconnect",
+        "scope": "snsapi_login",
+    },
+    "qq": {
+        "client_id": "QQ_APP_ID",
+        "client_secret": "QQ_APP_KEY",
+        "authorize_url": "https://graph.qq.com/oauth2.0/authorize",
+        "scope": "get_user_info",
+    },
+}
 
 
 # ----------------------------------------------------------------------
@@ -73,6 +104,149 @@ def trend_percent(today, yesterday):
         return "+0%"
     percent = round((today - yesterday) / yesterday * 100)
     return f"+{percent}%" if percent >= 0 else f"{percent}%"
+
+
+def current_date():
+    return dt.datetime.now(APP_TIMEZONE).date()
+
+
+def oauth_redirect_uri(provider):
+    configured = os.getenv(f"{provider.upper()}_REDIRECT_URI")
+    return configured or flask.url_for("oauth_callback", provider=provider, _external=True)
+
+
+def oauth_error(message):
+    return flask.redirect(f"/login?oauth_error={quote(message)}")
+
+
+def oauth_http_get(url, **params):
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+    return response
+
+
+def parse_qq_callback(response_text):
+    match = re.search(r"callback\s*\(\s*(\{.*\})\s*\)\s*;?", response_text, re.DOTALL)
+    if not match:
+        raise ValueError("QQ 返回的 openid 格式无效")
+    return json.loads(match.group(1))
+
+
+def sign_in_oauth_user(provider, provider_id, nickname, avatar=None):
+    identity = db.fetch_one(
+        "SELECT * FROM users WHERE oauth_provider = %s AND oauth_id = %s",
+        (provider, provider_id),
+    )
+    if identity:
+        user_id = identity["id"]
+        db.execute(
+            "UPDATE users SET name = %s, avatar = COALESCE(%s, avatar) WHERE id = %s",
+            (nickname or identity["name"], avatar, user_id),
+        )
+    else:
+        username = f"{provider}_{provider_id}"[:50]
+        user_id = db.execute(
+            """INSERT INTO users
+               (username, password_hash, name, email, level, avatar, oauth_provider, oauth_id)
+               VALUES (%s, %s, %s, NULL, '普通用户', %s, %s, %s)""",
+            (username, generate_password_hash(secrets.token_urlsafe(32)),
+             nickname or f"{provider} 用户", avatar, provider, provider_id),
+        )
+
+    user = db.fetch_one("SELECT id, username, name FROM users WHERE id = %s", (user_id,))
+    flask.session["user_id"] = user["id"]
+    flask.session["username"] = user["username"]
+    flask.session["name"] = user["name"]
+
+
+@app.get("/auth/<provider>")
+def oauth_start(provider):
+    config = OAUTH_PROVIDERS.get(provider)
+    client_id = os.getenv(config["client_id"]) if config else None
+    client_secret = os.getenv(config["client_secret"]) if config else None
+    if not config or not client_id or not client_secret:
+        return oauth_error(f"{provider} 登录尚未配置，请联系管理员")
+
+    state = secrets.token_urlsafe(32)
+    flask.session[f"oauth_state_{provider}"] = state
+    params = {
+        "client_id": client_id,
+        "redirect_uri": oauth_redirect_uri(provider),
+        "response_type": "code",
+        "scope": config["scope"],
+        "state": state,
+    }
+    target = f"{config['authorize_url']}?{urlencode(params)}"
+    if provider == "wechat":
+        target += "#wechat_redirect"
+    return flask.redirect(target)
+
+
+@app.get("/auth/<provider>/callback")
+def oauth_callback(provider):
+    config = OAUTH_PROVIDERS.get(provider)
+    if not config:
+        return oauth_error("不支持的登录方式")
+    state = flask.request.args.get("state")
+    expected_state = flask.session.pop(f"oauth_state_{provider}", None)
+    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        return oauth_error("登录请求已失效，请重新尝试")
+    if flask.request.args.get("error"):
+        return oauth_error("你取消了第三方登录")
+
+    code = flask.request.args.get("code")
+    if not code:
+        return oauth_error("第三方登录没有返回授权码")
+
+    client_id = os.getenv(config["client_id"])
+    client_secret = os.getenv(config["client_secret"])
+    try:
+        if provider == "wechat":
+            token_data = oauth_http_get(
+                "https://api.weixin.qq.com/sns/oauth2/access_token",
+                appid=client_id, secret=client_secret, code=code,
+                grant_type="authorization_code",
+            ).json()
+            if token_data.get("errcode"):
+                raise ValueError(token_data.get("errmsg", "微信授权失败"))
+            profile = oauth_http_get(
+                "https://api.weixin.qq.com/sns/userinfo",
+                access_token=token_data["access_token"],
+                openid=token_data["openid"], lang="zh_CN",
+            ).json()
+            if profile.get("errcode"):
+                raise ValueError(profile.get("errmsg", "微信用户信息获取失败"))
+            provider_id = profile["openid"]
+            nickname = profile.get("nickname")
+            avatar = profile.get("headimgurl")
+        else:
+            token_response = oauth_http_get(
+                "https://graph.qq.com/oauth2.0/token",
+                grant_type="authorization_code", client_id=client_id,
+                client_secret=client_secret, code=code,
+                redirect_uri=oauth_redirect_uri(provider),
+            )
+            token_data = parse_qs(token_response.text)
+            access_token = token_data["access_token"][0]
+            openid_data = parse_qq_callback(oauth_http_get(
+                "https://graph.qq.com/oauth2.0/me", access_token=access_token,
+            ).text)
+            provider_id = openid_data["openid"]
+            profile = oauth_http_get(
+                "https://graph.qq.com/user/get_user_info",
+                access_token=access_token, oauth_consumer_key=client_id,
+                openid=provider_id,
+            ).json()
+            if profile.get("ret") != 0:
+                raise ValueError(profile.get("msg", "QQ 用户信息获取失败"))
+            nickname = profile.get("nickname")
+            avatar = profile.get("figureurl_qq_2") or profile.get("figureurl_qq_1")
+
+        sign_in_oauth_user(provider, provider_id, nickname, avatar)
+        return flask.redirect("/dashboard")
+    except (KeyError, ValueError, requests.RequestException) as error:
+        app.logger.warning("OAuth %s failed: %s", provider, error)
+        return oauth_error("第三方登录失败，请稍后重试")
 
 
 # ----------------------------------------------------------------------
@@ -137,12 +311,21 @@ def profile_update_api():
     if not login_required():
         return api_error("请先登录", 401)
 
-    name = flask.request.form.get("name", "").strip()
+    nickname = flask.request.form.get("nickname", "").strip()
+    bio = flask.request.form.get("bio", "").strip()
+    gender = flask.request.form.get("gender", "").strip()
+    birthday = flask.request.form.get("birthday", "").strip() or None
+    country = flask.request.form.get("country", "").strip()
+    region = flask.request.form.get("region", "").strip()
+    signature = flask.request.form.get("signature", "").strip()
     avatar_file = flask.request.files.get("avatar")
-    fields, params = [], []
-    if name:
-        fields.append("name = %s")
-        params.append(name)
+    fields = [
+        "name = COALESCE(NULLIF(%s, ''), name)", "nickname = %s", "bio = %s", "gender = %s",
+        "birthday = %s", "country = %s", "region = %s", "signature = %s",
+    ]
+    params = [nickname, nickname or None,
+              bio or None, gender or None, birthday, country or None,
+              region or None, signature or None]
     if avatar_file and avatar_file.filename:
         if not avatar_file.content_type or not avatar_file.content_type.startswith("image/"):
             return api_error("请选择图片文件")
@@ -155,20 +338,25 @@ def profile_update_api():
         )
         fields.append("avatar = %s")
         params.append(avatar)
-    if not fields:
-        return api_error("没有需要更新的资料")
-
     params.append(flask.session["user_id"])
     db.execute(
         f"UPDATE users SET {', '.join(fields)} WHERE id = %s",
         tuple(params),
     )
     user = db.fetch_one(
-        "SELECT name, username, level, avatar FROM users WHERE id = %s",
+        """SELECT name, nickname, bio, gender, birthday, country, region,
+              signature, username, level, avatar FROM users WHERE id = %s""",
         (flask.session["user_id"],),
     )
     return flask.jsonify({"ok": True, "user": {
         "name": user["name"],
+        "nickname": user["nickname"] or user["name"],
+        "bio": user["bio"],
+        "gender": user["gender"],
+        "birthday": user["birthday"].isoformat() if user["birthday"] else "",
+        "country": user["country"],
+        "region": user["region"],
+        "signature": user["signature"],
         "email": user["username"],
         "level": user["level"],
         "is_admin": user["level"] == "管理员",
@@ -211,7 +399,7 @@ def dashboard_api():
         return api_error("请先登录", 401)
 
     user_id = flask.session["user_id"]
-    today = dt.date.today()
+    today = current_date()
 
     user = db.fetch_one("SELECT * FROM users WHERE id = %s", (user_id,))
     today_row = db.fetch_one(
@@ -245,7 +433,15 @@ def dashboard_api():
     today_row = today_row or {}
     return flask.jsonify({
         "user": {
+            "id": user["id"],
             "name": user["name"],
+            "nickname": user.get("nickname") or user["name"],
+            "bio": user.get("bio"),
+            "gender": user.get("gender"),
+            "birthday": user["birthday"].isoformat() if user.get("birthday") else "",
+            "country": user.get("country"),
+            "region": user.get("region"),
+            "signature": user.get("signature"),
             "email": user["username"],
             "level": user["level"],
             "is_admin": user["level"] == "管理员",
@@ -274,7 +470,7 @@ def sync_steps_api():
         return api_error("请先登录", 401)
 
     user_id = flask.session["user_id"]
-    today = dt.date.today()
+    today = current_date()
     with db.cursor() as cur:
         cur.execute(
             """INSERT INTO daily_health (user_id, record_date, steps)
@@ -288,6 +484,238 @@ def sync_steps_api():
         )
         steps = cur.fetchone()["steps"]
     return flask.jsonify({"ok": True, "steps": int(steps)})
+
+
+EXERCISE_GUIDES = [
+    {"key": "running", "name": "跑步", "icon": "🏃", "guide": "先慢走热身 5 分钟，再保持可以正常说话的节奏，结束后慢走放松。", "tip": "适合提升心肺与耐力"},
+    {"key": "cycling", "name": "骑行", "icon": "🚴", "guide": "调整座椅到膝盖微屈，保持稳定踏频，骑行前后各做 5 分钟轻松热身。", "tip": "低冲击有氧运动"},
+    {"key": "swimming", "name": "游泳", "icon": "🏊", "guide": "先进行肩颈和踝关节活动，采用舒适泳姿，组间充分休息并注意补水。", "tip": "全身参与、关节负担小"},
+    {"key": "yoga", "name": "瑜伽", "icon": "🧘", "guide": "从呼吸和基础体式开始，动作保持平稳，不要强行追求幅度，结束时做放松。", "tip": "改善柔韧性与恢复"},
+    {"key": "strength", "name": "力量训练", "icon": "🏋", "guide": "先用轻重量热身，动作过程中保持核心稳定，每组之间休息 60 至 90 秒。", "tip": "增强肌力与基础代谢"},
+    {"key": "walking", "name": "快走", "icon": "🚶", "guide": "保持抬头挺胸和自然摆臂，步速以微微出汗但能交谈为宜。", "tip": "容易坚持的入门运动"},
+]
+
+
+@app.get("/api/exercises")
+def exercise_list_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+    limit = 200 if flask.request.args.get("all") == "1" else 20
+    filters = ["user_id = %s"]
+    params = [flask.session["user_id"]]
+    record_date = flask.request.args.get("date", "").strip()
+    exercise_type = flask.request.args.get("exercise_type", "").strip()
+    if record_date:
+        filters.append("record_date = %s")
+        params.append(record_date)
+    if exercise_type and any(item["key"] == exercise_type for item in EXERCISE_GUIDES):
+        filters.append("exercise_type = %s")
+        params.append(exercise_type)
+    params.append(limit)
+    rows = db.fetch_all(
+        """SELECT id, exercise_type, duration_minutes, energy_kcal, record_date
+           FROM exercise_logs WHERE """ + " AND ".join(filters) +
+        " ORDER BY record_date DESC, id DESC LIMIT %s",
+        tuple(params),
+    )
+    return flask.jsonify({"ok": True, "guides": EXERCISE_GUIDES,
+                          "logs": [serialize(row) for row in rows]})
+
+
+@app.post("/api/exercises/log")
+def exercise_log_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+    payload = flask.request.get_json(silent=True) or {}
+    exercise_type = str(payload.get("exercise_type", "")).strip()
+    try:
+        duration = int(payload.get("duration_minutes", 0))
+        energy = int(payload.get("energy_kcal", 0))
+    except (TypeError, ValueError):
+        return api_error("运动时长和消耗能量必须是数字")
+    if not any(item["key"] == exercise_type for item in EXERCISE_GUIDES):
+        return api_error("请选择运动项目")
+    if duration <= 0 or duration > 1440:
+        return api_error("运动时长应在 1 到 1440 分钟之间")
+    if energy < 0 or energy > 100000:
+        return api_error("消耗能量请输入有效数值")
+
+    today = current_date()
+    user_id = flask.session["user_id"]
+    db.execute(
+        """INSERT INTO exercise_logs
+           (user_id, exercise_type, duration_minutes, energy_kcal, record_date)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (user_id, exercise_type, duration, energy, today),
+    )
+    db.execute(
+        """INSERT INTO daily_health (user_id, record_date, exercise_minutes)
+           VALUES (%s, %s, %s)
+           ON DUPLICATE KEY UPDATE exercise_minutes =
+             (SELECT COALESCE(SUM(duration_minutes), 0) FROM exercise_logs
+              WHERE user_id = %s AND record_date = %s)""",
+        (user_id, today, duration, user_id, today),
+    )
+    return flask.jsonify({"ok": True, "message": "运动记录已保存"})
+
+
+@app.get("/api/community/posts")
+def community_posts_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+    user_id = flask.session["user_id"]
+    rows = db.fetch_all(
+        """SELECT p.id, p.user_id, p.content, p.created_at, u.name, u.avatar,
+                  COUNT(DISTINCT c.id) AS comment_count,
+                  COUNT(DISTINCT l_all.user_id) AS like_count,
+                  MAX(l_me.user_id) IS NOT NULL AS liked
+           FROM community_posts p
+           JOIN users u ON u.id = p.user_id
+           LEFT JOIN community_comments c ON c.post_id = p.id
+           LEFT JOIN community_likes l_all ON l_all.post_id = p.id
+           LEFT JOIN community_likes l_me ON l_me.post_id = p.id AND l_me.user_id = %s
+           GROUP BY p.id, p.content, p.created_at, u.name, u.avatar
+           ORDER BY p.created_at DESC LIMIT 50""",
+        (user_id,),
+    )
+    return flask.jsonify({"ok": True, "posts": [serialize(row) for row in rows]})
+
+
+@app.get("/api/community/users/<int:user_id>")
+def community_user_profile_api(user_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    user = db.fetch_one(
+        """SELECT id, name, nickname, bio, gender, birthday, country, region,
+                  signature, avatar FROM users WHERE id = %s""",
+        (user_id,),
+    )
+    if not user:
+        return api_error("用户不存在", 404)
+    current_user_id = flask.session["user_id"]
+    posts = db.fetch_all(
+        """SELECT p.id, p.content, p.created_at,
+                  COUNT(DISTINCT c.id) AS comment_count,
+                  COUNT(DISTINCT l.user_id) AS like_count
+           FROM community_posts p
+           LEFT JOIN community_comments c ON c.post_id = p.id
+           LEFT JOIN community_likes l ON l.post_id = p.id
+           WHERE p.user_id = %s
+           GROUP BY p.id, p.content, p.created_at
+           ORDER BY p.created_at DESC LIMIT 50""",
+        (user_id,),
+    )
+    stats = db.fetch_one(
+        """SELECT
+             (SELECT COUNT(*) FROM community_likes l JOIN community_posts p ON p.id = l.post_id WHERE p.user_id = %s) AS likes_received,
+             (SELECT COUNT(*) FROM community_follows WHERE following_id = %s) AS followers_count,
+             (SELECT COUNT(*) FROM community_follows WHERE follower_id = %s) AS following_count,
+             EXISTS(SELECT 1 FROM community_follows WHERE follower_id = %s AND following_id = %s) AS following""",
+        (user_id, user_id, user_id, current_user_id, user_id),
+    )
+    public_user = serialize(user)
+    public_user.update({key: int(value) if key != "following" else bool(value)
+                        for key, value in stats.items()})
+    return flask.jsonify({"ok": True, "user": public_user,
+                          "posts": [serialize(post) for post in posts]})
+
+
+@app.post("/api/community/users/<int:user_id>/follow")
+def community_follow_api(user_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    follower_id = flask.session["user_id"]
+    if follower_id == user_id:
+        return api_error("不能关注自己")
+    if not db.fetch_one("SELECT id FROM users WHERE id = %s", (user_id,)):
+        return api_error("用户不存在", 404)
+    relation = db.fetch_one(
+        "SELECT follower_id FROM community_follows WHERE follower_id = %s AND following_id = %s",
+        (follower_id, user_id),
+    )
+    if relation:
+        db.execute(
+            "DELETE FROM community_follows WHERE follower_id = %s AND following_id = %s",
+            (follower_id, user_id),
+        )
+    else:
+        db.execute(
+            "INSERT INTO community_follows (follower_id, following_id) VALUES (%s, %s)",
+            (follower_id, user_id),
+        )
+    followers = db.fetch_one(
+        "SELECT COUNT(*) AS total FROM community_follows WHERE following_id = %s",
+        (user_id,),
+    )
+    return flask.jsonify({"ok": True, "following": not relation,
+                          "followers_count": followers["total"]})
+
+
+@app.post("/api/community/posts")
+def community_create_post_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+    payload = flask.request.get_json(silent=True) or {}
+    content = str(payload.get("content", "")).strip()
+    if not content:
+        return api_error("帖子内容不能为空")
+    if len(content) > 2000:
+        return api_error("帖子内容不能超过 2000 字")
+    post_id = db.execute(
+        "INSERT INTO community_posts (user_id, content) VALUES (%s, %s)",
+        (flask.session["user_id"], content),
+    )
+    return flask.jsonify({"ok": True, "id": post_id})
+
+
+@app.get("/api/community/posts/<int:post_id>/comments")
+def community_comments_api(post_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    rows = db.fetch_all(
+        """SELECT c.id, c.content, c.created_at, u.name, u.avatar
+           FROM community_comments c JOIN users u ON u.id = c.user_id
+           WHERE c.post_id = %s ORDER BY c.created_at ASC""",
+        (post_id,),
+    )
+    return flask.jsonify({"ok": True, "comments": [serialize(row) for row in rows]})
+
+
+@app.post("/api/community/posts/<int:post_id>/comments")
+def community_create_comment_api(post_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    content = str((flask.request.get_json(silent=True) or {}).get("content", "")).strip()
+    if not content:
+        return api_error("评论内容不能为空")
+    if len(content) > 500:
+        return api_error("评论不能超过 500 字")
+    if not db.fetch_one("SELECT id FROM community_posts WHERE id = %s", (post_id,)):
+        return api_error("帖子不存在", 404)
+    db.execute(
+        "INSERT INTO community_comments (post_id, user_id, content) VALUES (%s, %s, %s)",
+        (post_id, flask.session["user_id"], content),
+    )
+    return flask.jsonify({"ok": True})
+
+
+@app.post("/api/community/posts/<int:post_id>/like")
+def community_like_api(post_id):
+    if not login_required():
+        return api_error("请先登录", 401)
+    user_id = flask.session["user_id"]
+    if not db.fetch_one("SELECT id FROM community_posts WHERE id = %s", (post_id,)):
+        return api_error("帖子不存在", 404)
+    liked = db.fetch_one(
+        "SELECT post_id FROM community_likes WHERE post_id = %s AND user_id = %s",
+        (post_id, user_id),
+    )
+    if liked:
+        db.execute("DELETE FROM community_likes WHERE post_id = %s AND user_id = %s", (post_id, user_id))
+    else:
+        db.execute("INSERT INTO community_likes (post_id, user_id) VALUES (%s, %s)", (post_id, user_id))
+    count = db.fetch_one("SELECT COUNT(*) AS total FROM community_likes WHERE post_id = %s", (post_id,))
+    return flask.jsonify({"ok": True, "liked": not liked, "like_count": count["total"]})
 
 
 # ----------------------------------------------------------------------
@@ -549,8 +977,9 @@ def admin_delete_insight(insight_id):
 
 
 if __name__ == "__main__":
+    # Railway 会自动注入 PORT 环境变量；本地测试时默认用 8080
     app.run(
         host="0.0.0.0",
-        port=int(os.getenv("PORT", "5000")),
+        port=int(os.getenv("PORT", "8080")),
         debug=os.getenv("FLASK_DEBUG", "0") == "1",
     )

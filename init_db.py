@@ -52,12 +52,25 @@ def apply_schema_updates():
     """为已有数据库补充新字段，重复执行不会报错。"""
     with db.get_connection() as connection:
         with connection.cursor() as cursor:
-            try:
-                cursor.execute("ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL")
-            except pymysql.err.OperationalError as error:
-                if error.args[0] != 1060:
-                    raise
-    print("       用户头像字段就绪")
+            for statement in (
+                "ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL",
+                "ALTER TABLE users ADD COLUMN nickname VARCHAR(50) NULL",
+                "ALTER TABLE users ADD COLUMN bio VARCHAR(255) NULL",
+                "ALTER TABLE users ADD COLUMN gender VARCHAR(10) NULL",
+                "ALTER TABLE users ADD COLUMN birthday DATE NULL",
+                "ALTER TABLE users ADD COLUMN country VARCHAR(50) NULL",
+                "ALTER TABLE users ADD COLUMN region VARCHAR(100) NULL",
+                "ALTER TABLE users ADD COLUMN signature VARCHAR(255) NULL",
+                "ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(20) NULL",
+                "ALTER TABLE users ADD COLUMN oauth_id VARCHAR(100) NULL",
+                "ALTER TABLE users ADD UNIQUE KEY uk_users_oauth (oauth_provider, oauth_id)",
+            ):
+                try:
+                    cursor.execute(statement)
+                except pymysql.err.OperationalError as error:
+                    if error.args[0] not in (1060, 1061, 1826):
+                        raise
+    print("       用户资料与第三方登录字段就绪")
 
 
 def seed_users(cursor):
@@ -77,6 +90,78 @@ def seed_users(cursor):
     admin_id = cursor.fetchone()["id"]
     print(f"[2/3] 管理员账号就绪: admin / 123  (user_id={admin_id})")
     return admin_id
+
+
+TEST_USERS = [
+    ("test_alice", "Alice", "alice@example.test", "女", "1998-03-14", "中国", "上海市", "保持好奇，保持运动。"),
+    ("test_bob", "Bob", "bob@example.test", "男", "1995-07-22", "中国", "北京市", "每天进步一点点。"),
+    ("test_cindy", "Cindy", "cindy@example.test", "女", "2001-11-08", "中国", "广东省深圳市", "把生活过成喜欢的样子。"),
+    ("test_david", "David", "david@example.test", "男", "1992-01-30", "中国", "浙江省杭州市", "规律训练，认真生活。"),
+    ("test_emma", "Emma", "emma@example.test", "女", "1997-05-19", "中国", "江苏省南京市", "向着阳光奔跑。"),
+    ("test_frank", "Frank", "frank@example.test", "男", "1990-09-03", "中国", "湖北省武汉市", "训练让生活更有节奏。"),
+    ("test_grace", "Grace", "grace@example.test", "女", "1999-12-25", "中国", "四川省成都市", "温柔坚定地前进。"),
+    ("test_henry", "Henry", "henry@example.test", "男", "1994-04-11", "中国", "山东省青岛市", "今天也要完成小目标。"),
+    ("test_iris", "Iris", "iris@example.test", "女", "2000-06-28", "中国", "福建省厦门市", "保持热爱，持续行动。"),
+    ("test_jack", "Jack", "jack@example.test", "男", "1989-10-16", "中国", "重庆市", "自律带来自由。"),
+    ("test_kelly", "Kelly", "kelly@example.test", "女", "1996-02-07", "中国", "陕西省西安市", "让每一次呼吸都更从容。"),
+    ("test_leo", "Leo", "leo@example.test", "男", "2002-08-21", "中国", "云南省昆明市", "一步一步变得更强。"),
+    ("test_mia", "Mia", "mia@example.test", "女", "1993-03-30", "中国", "辽宁省大连市", "平衡工作与健康。"),
+    ("test_nick", "Nick", "nick@example.test", "男", "1991-11-12", "中国", "河南省郑州市", "专注当下，稳定成长。"),
+]
+
+
+def seed_test_users(cursor):
+    """写入可重复使用的测试账号及虚假个人资料。"""
+    password_hash = generate_password_hash("123")
+    user_ids = []
+    for username, nickname, email, gender, birthday, country, region, signature in TEST_USERS:
+        cursor.execute(
+            """INSERT INTO users
+               (username, password_hash, name, nickname, bio, gender, birthday,
+                country, region, signature, email, level)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '普通用户')
+               ON DUPLICATE KEY UPDATE
+                 password_hash = VALUES(password_hash), name = VALUES(name),
+                 nickname = VALUES(nickname), bio = VALUES(bio), gender = VALUES(gender),
+                 birthday = VALUES(birthday), country = VALUES(country),
+                 region = VALUES(region), signature = VALUES(signature),
+                 email = VALUES(email), level = VALUES(level)""",
+            (username, password_hash, nickname, nickname,
+             f"{nickname} 的健康档案与训练记录（测试数据）", gender, birthday,
+             country, region, signature, email),
+        )
+        cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+        user_ids.append(cursor.fetchone()["id"])
+    print(f"       测试账号就绪: {len(user_ids)} 个 (统一密码: 123)")
+    return user_ids
+
+
+def seed_test_exercises(cursor, user_ids):
+    """为测试账号写入近期运动历史。"""
+    today = dt.date.today()
+    records = [
+        ("running", 32, 260), ("cycling", 45, 310),
+        ("yoga", 28, 110), ("strength", 38, 240),
+    ]
+    for user_id, offset in zip(user_ids, range(len(user_ids))):
+        cursor.execute("DELETE FROM exercise_logs WHERE user_id = %s", (user_id,))
+        for index, (exercise_type, duration, energy) in enumerate(records):
+            day = today - dt.timedelta(days=index + offset)
+            cursor.execute(
+                """INSERT INTO exercise_logs
+                   (user_id, exercise_type, duration_minutes, energy_kcal, record_date)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (user_id, exercise_type, duration + offset * 3,
+                 energy + offset * 20, day),
+            )
+        cursor.execute(
+            """UPDATE daily_health SET exercise_minutes =
+                 (SELECT COALESCE(SUM(duration_minutes), 0) FROM exercise_logs
+                  WHERE user_id = %s AND record_date = %s)
+               WHERE user_id = %s AND record_date = %s""",
+            (user_id, today, user_id, today),
+        )
+    print("       测试账号运动历史写入完成")
 
 
 def seed_daily_health(cursor, user_id):
@@ -157,6 +242,12 @@ def seed_data():
             seed_daily_health(cursor, admin_id)
             seed_tasks(cursor, admin_id)
             seed_insights(cursor, admin_id)
+            test_user_ids = seed_test_users(cursor)
+            for user_id in test_user_ids:
+                seed_daily_health(cursor, user_id)
+                seed_tasks(cursor, user_id)
+                seed_insights(cursor, user_id)
+            seed_test_exercises(cursor, test_user_ids)
     print("[3/3] 初始数据写入完成")
 
 

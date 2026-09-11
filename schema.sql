@@ -19,12 +19,22 @@ CREATE TABLE IF NOT EXISTS `users` (
   `username`      VARCHAR(50)  NOT NULL COMMENT '登录账号',
   `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希(werkzeug)',
   `name`          VARCHAR(50)  NOT NULL COMMENT '昵称',
+  `nickname`      VARCHAR(50)  DEFAULT NULL COMMENT '个人昵称',
+  `bio`           VARCHAR(255) DEFAULT NULL COMMENT '个人简介',
+  `gender`        VARCHAR(10)  DEFAULT NULL COMMENT '性别',
+  `birthday`      DATE         DEFAULT NULL COMMENT '生日',
+  `country`       VARCHAR(50)  DEFAULT NULL COMMENT '国家',
+  `region`        VARCHAR(100) DEFAULT NULL COMMENT '地区',
+  `signature`     VARCHAR(255) DEFAULT NULL COMMENT '个性签名',
   `email`         VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
   `level`         VARCHAR(20)  NOT NULL DEFAULT '普通用户' COMMENT '用户等级',
   `avatar`        LONGTEXT     DEFAULT NULL COMMENT '头像图片 Data URL',
+  `oauth_provider` VARCHAR(20)  DEFAULT NULL COMMENT '第三方平台: wechat/qq',
+  `oauth_id`      VARCHAR(100) DEFAULT NULL COMMENT '第三方平台用户唯一 ID',
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_users_username` (`username`)
+  UNIQUE KEY `uk_users_username` (`username`),
+  UNIQUE KEY `uk_users_oauth` (`oauth_provider`, `oauth_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ------------------------------------------------------------
@@ -79,3 +89,63 @@ CREATE TABLE IF NOT EXISTS `health_insights` (
   KEY `idx_insights_user` (`user_id`),
   CONSTRAINT `fk_insights_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='健康分析建议表';
+
+-- ------------------------------------------------------------
+-- 运动记录表
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `exercise_logs` (
+  `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`          INT UNSIGNED NOT NULL,
+  `exercise_type`    VARCHAR(50) NOT NULL COMMENT '运动项目',
+  `duration_minutes` INT UNSIGNED NOT NULL COMMENT '运动时长(分钟)',
+  `energy_kcal`      INT UNSIGNED NOT NULL COMMENT '消耗能量(KCAL)',
+  `record_date`      DATE NOT NULL COMMENT '运动日期',
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_exercise_user_date` (`user_id`, `record_date`),
+  CONSTRAINT `fk_exercise_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动记录';
+
+-- ------------------------------------------------------------
+-- 运动社区：帖子、评论、点赞
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `community_posts` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`    INT UNSIGNED NOT NULL,
+  `content`    TEXT NOT NULL COMMENT '帖子内容',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_posts_created` (`created_at`),
+  CONSTRAINT `fk_posts_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动社区帖子';
+
+CREATE TABLE IF NOT EXISTS `community_comments` (
+  `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `post_id`    INT UNSIGNED NOT NULL,
+  `user_id`    INT UNSIGNED NOT NULL,
+  `content`    VARCHAR(500) NOT NULL COMMENT '评论内容',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_comments_post` (`post_id`),
+  CONSTRAINT `fk_comments_post` FOREIGN KEY (`post_id`) REFERENCES `community_posts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_comments_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动社区评论';
+
+CREATE TABLE IF NOT EXISTS `community_likes` (
+  `post_id`    INT UNSIGNED NOT NULL,
+  `user_id`    INT UNSIGNED NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`post_id`, `user_id`),
+  CONSTRAINT `fk_likes_post` FOREIGN KEY (`post_id`) REFERENCES `community_posts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_likes_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动社区点赞';
+
+CREATE TABLE IF NOT EXISTS `community_follows` (
+  `follower_id`  INT UNSIGNED NOT NULL COMMENT '关注者',
+  `following_id` INT UNSIGNED NOT NULL COMMENT '被关注者',
+  `created_at`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`follower_id`, `following_id`),
+  CONSTRAINT `fk_follows_follower` FOREIGN KEY (`follower_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_follows_following` FOREIGN KEY (`following_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='运动社区关注关系';

@@ -33,10 +33,10 @@
                         <h2>欢迎回来</h2>
                         <p class="subtitle">登录你的运动健康账户，继续打磨更强的自己。</p>
                         <div class="socials">
-                            <button class="ghost-button" type="button">Google</button>
-                            <button class="ghost-button" type="button">Apple</button>
+                            <button class="ghost-button wechat-button" type="button" @click="oauthLogin('wechat')">微信登录</button>
+                            <button class="ghost-button qq-button" type="button" @click="oauthLogin('qq')">QQ 登录</button>
                         </div>
-                        <div class="divider">or</div>
+                        <div class="divider">或使用账号密码</div>
                         <div v-if="error" class="error">{{ error }}</div>
                         <form class="login-form" @submit.prevent="login">
                             <div class="field">
@@ -63,7 +63,7 @@
             <header class="dashboard-top">
                 <div class="brand"><span class="brand-badge">H</span><span>健康运动</span></div>
                 <nav class="main-nav" aria-label="主导航">
-                    <button v-for="item in navItems" :key="item.key" class="nav-item" :class="{ active: activeNav === item.key }" type="button" @click="activeNav = item.key">
+                    <button v-for="item in navItems" :key="item.key" class="nav-item" :class="{ active: activeNav === item.key }" type="button" @click="selectNav(item.key)">
                         <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
                         <span>{{ item.label }}</span>
                     </button>
@@ -124,7 +124,118 @@
                 <div class="insight-list"><div v-for="insight in dashboard.insights" :key="insight.title" class="insight-item"><strong>{{ insight.title }}</strong><span>{{ insight.text }}</span></div></div>
             </section>
 
-            <section v-if="activeNav !== 'home'" class="panel feature-view">
+            <section v-if="activeNav === 'community'" class="community-view">
+                <div class="community-heading">
+                    <div>
+                        <span class="eyebrow">运动社区</span>
+                        <h1>和一起运动的人分享进步</h1>
+                        <p>记录训练感受，交流健康生活，也给同伴一个鼓励。</p>
+                    </div>
+                </div>
+                <section v-if="communityProfile" class="panel community-profile-page">
+                    <button class="community-back" type="button" @click="closeCommunityProfile">← 返回运动社区</button>
+                    <div class="community-profile-head">
+                        <img v-if="communityProfile.user.avatar" class="community-profile-avatar" :src="communityProfile.user.avatar" alt="用户头像">
+                        <span v-else class="community-profile-avatar">{{ (communityProfile.user.name || 'U').charAt(0).toUpperCase() }}</span>
+                        <div><h2>{{ communityProfile.user.nickname || communityProfile.user.name }}</h2><p>{{ communityProfile.user.signature || '这个用户还没有填写个性签名' }}</p><button v-if="communityProfile.user.id !== dashboard.user.id" class="follow-button" :class="{ following: communityProfile.user.following }" type="button" @click="toggleCommunityFollow">{{ communityProfile.user.following ? '已关注' : '关注' }}</button></div>
+                    </div>
+                    <div class="community-profile-info">
+                        <div><span>获赞</span><strong>{{ communityProfile.user.likes_received }}</strong></div>
+                        <div><span>关注</span><strong>{{ communityProfile.user.following_count }}</strong></div>
+                        <div><span>粉丝</span><strong>{{ communityProfile.user.followers_count }}</strong></div>
+                        <div><span>个人简介</span><strong>{{ communityProfile.user.bio || '暂无' }}</strong></div>
+                        <div><span>性别</span><strong>{{ communityProfile.user.gender || '未设置' }}</strong></div>
+                        <div><span>地区</span><strong>{{ [communityProfile.user.country, communityProfile.user.region].filter(Boolean).join(' · ') || '未设置' }}</strong></div>
+                        <div><span>社区帖子</span><strong>{{ communityProfile.posts.length }} 条</strong></div>
+                    </div>
+                    <h3 class="community-profile-post-title">TA 的社区分享</h3>
+                    <div v-if="communityProfile.posts.length" class="community-profile-posts">
+                        <article v-for="post in communityProfile.posts" :key="post.id" class="community-profile-post"><p>{{ post.content }}</p><span>{{ post.created_at }} · {{ post.like_count }} 赞 · {{ post.comment_count }} 评论</span></article>
+                    </div>
+                    <p v-else class="small-text">还没有发布社区帖子。</p>
+                </section>
+                <section v-if="!communityProfile" class="panel community-composer">
+                    <textarea v-model="communityContent" maxlength="2000" placeholder="分享今天的训练、心得或目标..."></textarea>
+                    <div class="composer-footer"><span class="small-text">{{ communityContent.length }} / 2000</span><button class="primary-button" type="button" :disabled="communitySaving" @click="createCommunityPost">{{ communitySaving ? '发布中...' : '发布帖子' }}</button></div>
+                </section>
+                <p v-if="!communityProfile && communityError" class="profile-error">{{ communityError }}</p>
+                <div v-if="!communityProfile && communityPosts.length" class="community-feed">
+                    <article v-for="post in communityPosts" :key="post.id" class="panel community-post">
+                        <div class="post-author">
+                            <button class="post-profile-button" type="button" :aria-label="`查看 ${post.name} 的个人主页`" @click="openCommunityProfile(post.user_id)">
+                                <img v-if="post.avatar" class="avatar" :src="post.avatar" alt="作者头像">
+                                <span v-else class="avatar">{{ (post.name || 'U').charAt(0).toUpperCase() }}</span>
+                            </button>
+                            <div><button class="post-author-name" type="button" @click="openCommunityProfile(post.user_id)">{{ post.name }}</button><span>{{ post.created_at }}</span></div>
+                        </div>
+                        <p class="post-content">{{ post.content }}</p>
+                        <div class="post-actions">
+                            <button type="button" :class="{ liked: post.liked }" @click="toggleCommunityLike(post)">{{ post.liked ? '♥' : '♡' }} {{ post.like_count }}</button>
+                            <button type="button" @click="toggleCommunityComments(post)">评论 {{ post.comment_count }}</button>
+                        </div>
+                        <div v-if="communityCommentOpen[post.id]" class="comment-area">
+                            <div v-if="communityComments[post.id]?.length" class="comment-list">
+                                <div v-for="comment in communityComments[post.id]" :key="comment.id" class="comment-item"><strong>{{ comment.name }}</strong><span>{{ comment.content }}</span></div>
+                            </div>
+                            <p v-else class="small-text">还没有评论，来留下第一条吧。</p>
+                            <div class="comment-composer"><input v-model="communityDrafts[post.id]" maxlength="500" placeholder="写下评论..."><button type="button" @click="createCommunityComment(post)">发送</button></div>
+                        </div>
+                    </article>
+                </div>
+                <div v-if="!communityProfile && !communityPosts.length" class="panel community-empty">社区还没有帖子，发布第一条运动分享吧。</div>
+            </section>
+
+            <section v-if="activeNav === 'exercise'" class="exercise-view">
+                <div class="exercise-heading">
+                    <div>
+                        <span class="eyebrow">运动指导</span>
+                        <h1>选择今天的运动</h1>
+                        <p>记录运动时长和消耗能量，让每一次训练都留下可见的进步。</p>
+                    </div>
+                    <div class="exercise-total"><strong>{{ exerciseTotalMinutes }}</strong><span>今日运动分钟</span></div>
+                </div>
+                <div class="exercise-layout">
+                    <div class="exercise-guides">
+                        <article v-for="guide in exerciseGuides" :key="guide.key" class="exercise-guide" :class="{ selected: exerciseForm.exercise_type === guide.key }" @click="exerciseForm.exercise_type = guide.key">
+                            <div class="exercise-icon">{{ guide.icon }}</div>
+                            <div><h2>{{ guide.name }}</h2><p>{{ guide.tip }}</p></div>
+                        </article>
+                    </div>
+                    <section class="panel exercise-form-card">
+                        <span class="eyebrow">训练记录</span>
+                        <h2>{{ selectedExerciseGuide ? selectedExerciseGuide.name : '选择运动项目' }}</h2>
+                        <p class="exercise-guide-text">{{ selectedExerciseGuide ? selectedExerciseGuide.guide : '点击左侧运动项目查看指导建议。' }}</p>
+                        <div class="exercise-fields">
+                            <label>运动时长（分钟）<input v-model.number="exerciseForm.duration_minutes" type="number" min="1" max="1440" placeholder="例如 30"></label>
+                            <label>消耗能量（KCAL）<input v-model.number="exerciseForm.energy_kcal" type="number" min="0" max="100000" placeholder="例如 240"></label>
+                        </div>
+                        <p v-if="exerciseError" class="profile-error">{{ exerciseError }}</p>
+                        <button class="primary-button exercise-submit" type="button" :disabled="exerciseSaving || !exerciseForm.exercise_type" @click="saveExercise">
+                            {{ exerciseSaving ? '保存中...' : '保存运动记录' }}
+                        </button>
+                    </section>
+                </div>
+                <section class="panel exercise-history">
+                    <div class="section-title">
+                        <h2>{{ exerciseHistoryAll ? '全部运动历史' : '最近运动记录' }}</h2>
+                        <button v-if="exerciseLogs.length || exerciseHistoryAll" class="history-toggle" type="button" @click="toggleExerciseHistory">
+                            {{ exerciseHistoryAll ? '收起历史' : '查看全部历史' }}
+                        </button>
+                    </div>
+                    <div v-if="exerciseHistoryAll" class="exercise-filters">
+                        <label>按日期<input v-model="exerciseFilterDate" type="date"></label>
+                        <label>按项目<select v-model="exerciseFilterType"><option value="">全部项目</option><option v-for="guide in exerciseGuides" :key="guide.key" :value="guide.key">{{ guide.name }}</option></select></label>
+                        <button class="history-filter-button" type="button" @click="filterExerciseHistory">查找</button>
+                        <button class="history-clear-button" type="button" @click="clearExerciseFilters">清除</button>
+                    </div>
+                    <div v-if="exerciseLogs.length" class="exercise-log-list">
+                        <div v-for="log in exerciseLogs" :key="log.id" class="exercise-log"><strong>{{ exerciseName(log.exercise_type) }}</strong><span>{{ log.duration_minutes }} 分钟 · {{ log.energy_kcal }} KCAL · {{ log.record_date }}</span></div>
+                    </div>
+                    <p v-else class="exercise-empty">还没有运动记录，完成一次训练后记下来吧。</p>
+                </section>
+            </section>
+
+            <section v-if="activeNav !== 'home' && activeNav !== 'exercise' && activeNav !== 'community'" class="panel feature-view">
                 <div class="feature-icon">{{ navItems.find((item) => item.key === activeNav).icon }}</div>
                 <span class="eyebrow">{{ navItems.find((item) => item.key === activeNav).label }}</span>
                 <h1>{{ navItems.find((item) => item.key === activeNav).description }}</h1>
@@ -145,21 +256,67 @@
             </section>
         </div>
 
-        <div v-if="profileModal" class="modal-backdrop" @click.self="profileModal = false">
+        <div v-if="profileModal" class="modal-backdrop">
             <section class="modal profile-modal">
-                <h2>个人中心</h2>
+                <div class="profile-modal-header">
+                    <h2>个人中心</h2>
+                    <button class="modal-close" type="button" aria-label="关闭个人中心" title="关闭" @click="requestCloseProfile">×</button>
+                </div>
                 <label class="avatar-picker" for="avatar-file">
                     <img v-if="profilePreview" class="avatar-large" :src="profilePreview" alt="头像预览">
                     <span v-else class="avatar-large avatar-fallback">{{ avatarLetter }}</span>
                     <span>点击上传头像</span>
                 </label>
                 <input id="avatar-file" class="visually-hidden" type="file" accept="image/*" @change="selectAvatar">
-                <label class="profile-label" for="profile-name">昵称</label>
-                <input id="profile-name" v-model="profileName" class="profile-input" maxlength="50">
+                <div class="profile-fields">
+                    <div class="profile-field full-field">
+                        <label class="profile-label" for="profile-nickname">昵称</label>
+                        <input id="profile-nickname" v-model="profileForm.nickname" class="profile-input" maxlength="50">
+                    </div>
+                    <div class="profile-field full-field">
+                        <label class="profile-label" for="profile-bio">个人简介</label>
+                        <textarea id="profile-bio" v-model="profileForm.bio" class="profile-input profile-textarea" maxlength="255" placeholder="介绍一下自己"></textarea>
+                    </div>
+                    <div class="profile-field full-field">
+                        <label class="profile-label" for="profile-signature">个性签名</label>
+                        <input id="profile-signature" v-model="profileForm.signature" class="profile-input" maxlength="255" placeholder="写一句你的签名">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profile-gender">性别</label>
+                        <select id="profile-gender" v-model="profileForm.gender" class="profile-input">
+                            <option value="">未设置</option><option>男</option><option>女</option><option>其他</option>
+                        </select>
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profile-birthday">生日</label>
+                        <input id="profile-birthday" v-model="profileForm.birthday" class="profile-input" type="date">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profile-country">国家</label>
+                        <input id="profile-country" v-model="profileForm.country" class="profile-input" maxlength="50" placeholder="中国">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profile-region">地区</label>
+                        <input id="profile-region" v-model="profileForm.region" class="profile-input" maxlength="100" placeholder="省 / 市">
+                    </div>
+                </div>
                 <p v-if="profileError" class="profile-error">{{ profileError }}</p>
-                <button class="primary-button" type="button" :disabled="profileSaving" @click="saveProfile">
-                    {{ profileSaving ? '保存中...' : '保存资料' }}
-                </button>
+                <div class="profile-actions">
+                    <button class="primary-button" type="button" :disabled="profileSaving" @click="saveProfile"> 保存资料</button>
+                    <button class="danger-button" type="button" :disabled="profileSaving" @click="cancelProfileEdit">取消编辑</button>
+                </div>
+            </section>
+        </div>
+
+        <div v-if="profileCloseConfirm" class="confirm-backdrop">
+            <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-confirm-title">
+                <h2 id="profile-confirm-title">是否保存资料？</h2>
+                <p>当前编辑内容尚未保存，请选择退出方式。</p>
+                <div class="confirm-actions">
+                    <button class="primary-button" type="button" @click="saveProfile">保存并退出</button>
+                    <button class="danger-button" type="button" @click="discardProfileChanges">不保存退出</button>
+                    <button class="secondary-button" type="button" @click="continueProfileEdit">继续编辑</button>
+                </div>
             </section>
         </div>
     </div>
