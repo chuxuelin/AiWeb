@@ -17,7 +17,8 @@ import db
 
 app = flask.Flask(__name__, template_folder="templates")
 app.secret_key = os.getenv("SECRET_KEY", "health-demo-secret")
-app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Shanghai"))
 
 
@@ -262,7 +263,7 @@ def index():
 @app.route("/admin")
 @admin_only
 def admin_page():
-    return flask.render_template("admin.html")
+    return flask.render_template("index.html")
 
 
 # ----------------------------------------------------------------------
@@ -329,9 +330,9 @@ def profile_update_api():
     if avatar_file and avatar_file.filename:
         if not avatar_file.content_type or not avatar_file.content_type.startswith("image/"):
             return api_error("请选择图片文件")
-        image_data = avatar_file.read(2 * 1024 * 1024 + 1)
-        if len(image_data) > 2 * 1024 * 1024:
-            return api_error("头像图片不能超过 2MB")
+        image_data = avatar_file.read(MAX_IMAGE_SIZE + 1)
+        if len(image_data) > MAX_IMAGE_SIZE:
+            return api_error("头像图片不能超过 10MB")
         avatar = (
             f"data:{avatar_file.content_type};base64,"
             f"{base64.b64encode(image_data).decode('ascii')}"
@@ -362,6 +363,36 @@ def profile_update_api():
         "is_admin": user["level"] == "管理员",
         "avatar": user["avatar"],
     }})
+
+
+@app.post("/api/password")
+def password_update_api():
+    if not login_required():
+        return api_error("请先登录", 401)
+
+    payload = flask.request.get_json(silent=True) or {}
+    current_password = str(payload.get("current_password", ""))
+    new_password = str(payload.get("new_password", ""))
+    confirm_password = str(payload.get("confirm_password", ""))
+    if not current_password or not new_password or not confirm_password:
+        return api_error("请完整填写密码信息")
+    if len(new_password) < 6:
+        return api_error("新密码至少需要 6 位")
+    if new_password != confirm_password:
+        return api_error("两次输入的新密码不一致")
+
+    user = db.fetch_one(
+        "SELECT password_hash FROM users WHERE id = %s",
+        (flask.session["user_id"],),
+    )
+    if not user or not check_password_hash(user["password_hash"], current_password):
+        return api_error("当前密码不正确")
+
+    db.execute(
+        "UPDATE users SET password_hash = %s WHERE id = %s",
+        (generate_password_hash(new_password), flask.session["user_id"]),
+    )
+    return flask.jsonify({"ok": True, "message": "密码修改成功"})
 
 
 # ----------------------------------------------------------------------
@@ -706,9 +737,9 @@ def private_message_create_api(user_id):
         if image_file and image_file.filename:
             if not image_file.content_type or not image_file.content_type.startswith("image/"):
                 return api_error("只能发送图片文件")
-            image_bytes = image_file.read()
-            if len(image_bytes) > 2 * 1024 * 1024:
-                return api_error("图片不能超过 2MB")
+            image_bytes = image_file.read(MAX_IMAGE_SIZE + 1)
+            if len(image_bytes) > MAX_IMAGE_SIZE:
+                return api_error("图片不能超过 10MB")
             image_data = "data:{};base64,{}".format(
                 image_file.content_type, base64.b64encode(image_bytes).decode("ascii")
             )

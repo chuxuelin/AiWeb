@@ -125,7 +125,7 @@
                     </button>
                     <div v-if="profileOpen" class="profile-menu">
                         <button type="button" @click="openProfile">个人中心</button>
-                        <button type="button">设置</button>
+                        <button type="button" @click="openSettings">设置</button>
                         <button v-if="dashboard.user.is_admin" type="button" @click="goAdmin">后台数据管理</button>
                         <button class="logout" type="button" @click="logout">退出登录</button>
                     </div>
@@ -350,11 +350,99 @@
                 </section>
             </section>
 
-            <section v-if="activeNav !== 'home' && activeNav !== 'exercise' && activeNav !== 'community'" class="panel feature-view">
+            <section v-if="activeNav === 'plan'" class="plan-view">
+                <div class="plan-heading">
+                    <div>
+                        <span class="eyebrow">个性化处方方案</span>
+                        <h1>今天，按自己的节奏完成计划</h1>
+                        <p>根据你的健康数据整理出的轻量方案，完成一项就离目标更近一步。</p>
+                    </div>
+                    <div class="plan-progress"><strong>{{ planProgress }}%</strong><span>{{ planCompletedCount }} / {{ planItems.length }} 项完成</span></div>
+                </div>
+
+                <section class="panel plan-banner">
+                    <div><span class="eyebrow">今日重点</span><h2>{{ planProgress === 100 ? '今日计划已完成，给自己一个肯定。' : '先完成最容易开始的一项。' }}</h2><p>{{ planProgress === 100 ? '可以保持当前节奏，今晚优先安排充足睡眠。' : '方案不追求一次做完，持续的小行动比短暂的冲刺更重要。' }}</p></div>
+                    <div class="plan-ring"><span>{{ planCompletedCount }}</span><small>完成</small></div>
+                </section>
+
+                <div class="plan-layout">
+                    <section class="panel plan-list-card">
+                        <div class="section-title"><h2>今日执行清单</h2><span class="small-text">按需调整</span></div>
+                        <div class="plan-list">
+                            <button v-for="item in planItems" :key="item.key" type="button" class="plan-item" :class="{ completed: isPlanItemDone(item.key) }" @click="togglePlanItem(item.key)">
+                                <span class="plan-check">{{ isPlanItemDone(item.key) ? '✓' : '' }}</span>
+                                <span class="plan-item-icon">{{ item.icon }}</span>
+                                <span class="plan-item-copy"><strong>{{ item.title }}</strong><small>{{ item.detail }}</small></span>
+                                <span class="plan-tag">{{ item.tag }}</span>
+                            </button>
+                        </div>
+                    </section>
+                    <aside class="panel plan-side-card">
+                        <span class="eyebrow">方案原则</span>
+                        <h2>把健康变成可持续的日常</h2>
+                        <div class="plan-principle"><strong>01 · 低门槛</strong><span>每一步都应该容易开始，状态不佳时可以降低强度。</span></div>
+                        <div class="plan-principle"><strong>02 · 可调整</strong><span>计划是参考，不舒服时停止并优先休息或寻求专业意见。</span></div>
+                        <div class="plan-principle"><strong>03 · 看趋势</strong><span>关注一周的变化，不用单日结果评价自己。</span></div>
+                    </aside>
+                </div>
+                <p class="plan-disclaimer">以上内容用于日常健康管理，不构成医疗诊断、处方或治疗建议。</p>
+            </section>
+
+            <section v-if="activeNav === 'health'" class="mental-health-view">
+                <div class="mental-heading">
+                    <div>
+                        <span class="eyebrow">心理健康</span>
+                        <h1>先照顾好此刻的自己</h1>
+                        <p>用一分钟觉察情绪和精力，不做诊断，只为今天找到更合适的节奏。</p>
+                    </div>
+                    <div class="mental-status" :class="mentalStatus.tone"><span></span><strong>{{ mentalStatus.label }}</strong><small>基于睡眠与恢复数据</small></div>
+                </div>
+
+                <div class="mental-grid">
+                    <section class="panel mood-card">
+                        <div class="section-title"><h2>今天的心情</h2><span class="small-text">每日一次</span></div>
+                        <p class="mental-question">如果用一个词描述此刻，你会选择哪一个？</p>
+                        <div class="mood-options">
+                            <button v-for="mood in mentalMoods" :key="mood.key" type="button" class="mood-option" :class="{ selected: mentalMood === mood.key }" @click="mentalMood = mood.key">
+                                <span>{{ mood.icon }}</span><strong>{{ mood.label }}</strong><small>{{ mood.note }}</small>
+                            </button>
+                        </div>
+                        <button class="primary-button mental-save" type="button" :disabled="!mentalMood" @click="saveMentalCheckin">{{ mentalCheckinSaved ? '今日记录已更新' : '保存今日状态' }}</button>
+                    </section>
+
+                    <section class="panel recovery-card">
+                        <div class="section-title"><h2>身心恢复</h2><span class="small-text">今日概览</span></div>
+                        <div class="recovery-score"><strong>{{ mentalRecoveryScore }}</strong><span>/ 100</span></div>
+                        <div class="recovery-track"><span :style="{ width: mentalRecoveryScore + '%' }"></span></div>
+                        <div class="recovery-facts"><div><strong>{{ dashboard.hero.sleepQuality }}%</strong><span>睡眠质量</span></div><div><strong>{{ dashboard.metrics.find((item) => item.key === 'sleep')?.value || 0 }}h</strong><span>睡眠时长</span></div><div><strong>{{ dashboard.hero.exerciseMinutes }}</strong><span>运动分钟</span></div></div>
+                    </section>
+                </div>
+
+                <div class="mental-content-grid">
+                    <section class="panel advice-card">
+                        <div class="section-title"><h2>给今天的建议</h2><span class="small-text">根据你的选择</span></div>
+                        <div class="advice-highlight"><span class="advice-icon">✦</span><p>{{ mentalAdvice }}</p></div>
+                        <div class="care-list">
+                            <div><span>01</span><p><strong>安排一个缓冲时段</strong>在日程中留出 10 分钟，不处理消息，只做呼吸或伸展。</p></div>
+                            <div><span>02</span><p><strong>把目标缩小一点</strong>先完成下一步，不需要一次解决所有事情。</p></div>
+                            <div><span>03</span><p><strong>和真实的人保持连接</strong>向信任的人说说近况，倾听和被倾听都很重要。</p></div>
+                        </div>
+                    </section>
+                    <section class="panel support-card">
+                        <span class="eyebrow">需要更多支持？</span>
+                        <h2>求助是一种照顾</h2>
+                        <p>如果低落、焦虑或失眠持续影响生活，请联系专业心理咨询师或当地医疗机构。若你正处于紧急危险中，请立即联系当地急救服务或身边可信任的人。</p>
+                        <div class="support-note">本页面不能替代医疗诊断或心理治疗。</div>
+                    </section>
+                </div>
+            </section>
+
+            <section v-if="activeNav !== 'home' && activeNav !== 'exercise' && activeNav !== 'community' && activeNav !== 'health'" class="panel feature-view">
                 <div class="feature-icon">{{ navItems.find((item) => item.key === activeNav).icon }}</div>
                 <span class="eyebrow">{{ navItems.find((item) => item.key === activeNav).label }}</span>
                 <h1>{{ navItems.find((item) => item.key === activeNav).description }}</h1>
-                <p>这里将集中展示{{ navItems.find((item) => item.key === activeNav).label }}相关内容，后续可以继续接入 Flask API 和真实业务数据。</p>
+                <p v-if="activeNav === 'profile'">管理你的个人资料、健康记录与账户设置，让每一次坚持都有迹可循。</p>
+                <p v-else>这里将集中展示{{ navItems.find((item) => item.key === activeNav).label }}相关内容。</p>
                 <div class="feature-cards">
                     <div><strong>数据准备中</strong><span>根据你的健康档案生成专属内容</span></div>
                     <div><strong>智能同步</strong><span>连接设备后自动更新最新状态</span></div>
@@ -368,6 +456,90 @@
                 <div class="qr-box"></div>
                 <p>请打开微信“扫一扫”，扫描二维码后同步当前步数数据。</p>
                 <button class="primary-button" type="button" @click="scanOpen = false; syncSteps()">已同步</button>
+            </section>
+        </div>
+
+        <div v-if="settingsOpen" class="modal-backdrop settings-backdrop" @click.self="settingsOpen = false">
+            <section class="modal settings-modal">
+                <div class="settings-titlebar">
+                    <button class="settings-back" type="button" aria-label="返回" @click="settingsPage === 'root' ? settingsOpen = false : backSettingsPage()">‹</button>
+                    <h2>{{ settingsPage === 'root' ? '设置' : settingsPage === 'security' ? '账号与安全' : settingsPage === 'notifications' ? '消息通知' : settingsPage === 'mode' ? '模式选择' : settingsPage === 'general' ? '通用' : settingsPage === 'privacy' ? '隐私设置' : '关于与帮助' }}</h2>
+                    <span class="settings-title-spacer"></span>
+                </div>
+                <section v-if="settingsPage === 'security'" class="settings-security-page">
+                    <div class="security-heading"><span class="settings-row-icon">♙</span><div><strong>修改账号密码</strong><small>定期更新密码，保护账号安全。</small></div></div>
+                    <form class="password-form" @submit.prevent="updatePassword">
+                        <label>当前密码<input v-model="passwordForm.current_password" type="password" autocomplete="current-password" placeholder="输入当前密码"></label>
+                        <label>新密码<input v-model="passwordForm.new_password" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 位"></label>
+                        <label>确认新密码<input v-model="passwordForm.confirm_password" type="password" minlength="6" autocomplete="new-password" placeholder="再次输入新密码"></label>
+                        <p v-if="passwordError" class="settings-feedback error-feedback">{{ passwordError }}</p>
+                        <p v-if="passwordSuccess" class="settings-feedback success-feedback">{{ passwordSuccess }}</p>
+                        <button class="primary-button settings-submit" type="submit" :disabled="passwordSaving">{{ passwordSaving ? '保存中...' : '保存新密码' }}</button>
+                    </form>
+                </section>
+                <button v-if="settingsPage === 'root'" class="settings-account-card" type="button" @click="openSettingsPage('security')">
+                    <img v-if="dashboard.user.avatar" class="settings-account-avatar" :src="dashboard.user.avatar" alt="账户头像">
+                    <span v-else class="settings-account-avatar">{{ avatarLetter }}</span>
+                    <span class="settings-account-copy"><strong>账号与安全</strong><small>{{ dashboard.user.nickname || dashboard.user.name }}</small></span>
+                    <span class="settings-arrow">›</span>
+                </button>
+                <template v-if="settingsPage === 'root'">
+                <div class="settings-group-label">功能</div>
+                <div class="settings-list">
+                    <button class="settings-list-row" type="button" @click="openSettingsPage('notifications')"><span class="settings-row-icon">♧</span><span>消息通知</span><span class="settings-arrow">›</span></button>
+                    <button class="settings-list-row" type="button" @click="openSettingsPage('mode')"><span class="settings-row-icon">◐</span><span>模式选择</span><small>{{ darkMode ? '夜间模式' : '普通模式' }}</small><span class="settings-arrow">›</span></button>
+                    <button class="settings-list-row" type="button" @click="settingsOpen = false; openProfile()"><span class="settings-row-icon">✦</span><span>个性装扮与头像</span><span class="settings-arrow">›</span></button>
+                    <button class="settings-list-row" type="button" @click="openSettingsPage('general')"><span class="settings-row-icon">☷</span><span>通用</span><span class="settings-arrow">›</span></button>
+                </div>
+                <button class="settings-list settings-single-row" type="button" @click="openSettingsPage('about')"><span class="settings-row-icon">ⓘ</span><span>关于 MoveWell 与帮助</span><span class="settings-arrow">›</span></button>
+                <button class="settings-logout" type="button" @click="settingsOpen = false; logout()"><span class="settings-row-icon">⇥</span>退出当前账号</button>
+                </template>
+                <section v-else-if="settingsPage === 'notifications'" class="settings-subpage">
+                    <div class="settings-group-label">未打开 MoveWell 时</div>
+                    <div class="settings-list">
+                        <button v-for="item in [{ key: 'system', label: '系统消息通知', icon: '♧' }, { key: 'preview', label: '通知显示消息预览', icon: '◉' }, { key: 'calls', label: '语音和视频通话提醒', icon: '♧' }, { key: 'quick', label: '通话用快捷弹窗接听', icon: '▣' } ]" :key="item.key" class="settings-list-row" type="button" @click="saveSettingsPreference('notification', { [item.key]: !notificationSettings[item.key] }, 'movewell-notifications')"><span class="settings-row-icon">{{ item.icon }}</span><span>{{ item.label }}</span><span class="mini-toggle" :class="{ active: notificationSettings[item.key] }"><i></i></span></button>
+                    </div>
+                    <div class="settings-group-label">打开 MoveWell 时</div>
+                    <div class="settings-list">
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('notification', { banner: !notificationSettings.banner }, 'movewell-notifications')"><span class="settings-row-icon">▤</span><span>MoveWell 内消息横幅</span><span class="mini-toggle" :class="{ active: notificationSettings.banner }"><i></i></span></button>
+                    </div>
+                    <div class="settings-group-label">提醒方式</div>
+                    <div class="settings-list">
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('notification', { sound: !notificationSettings.sound }, 'movewell-notifications')"><span class="settings-row-icon">◖</span><span>声音</span><span class="mini-toggle" :class="{ active: notificationSettings.sound }"><i></i></span></button>
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('notification', { vibration: !notificationSettings.vibration }, 'movewell-notifications')"><span class="settings-row-icon">⌁</span><span>振动</span><span class="mini-toggle" :class="{ active: notificationSettings.vibration }"><i></i></span></button>
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('notification', { dnd: !notificationSettings.dnd }, 'movewell-notifications')"><span class="settings-row-icon">⊘</span><span>勿扰模式</span><small>指定时间内不接收消息推送</small><span class="mini-toggle" :class="{ active: notificationSettings.dnd }"><i></i></span></button>
+                    </div>
+                </section>
+                <section v-else-if="settingsPage === 'mode'" class="settings-subpage">
+                    <div class="settings-group-label">模式切换</div>
+                    <div class="settings-list mode-list">
+                        <button v-for="mode in [{ key: 'normal', label: '普通模式', detail: '随心使用，畅享健康记录' }, { key: 'simple', label: '简洁模式', detail: '减少装饰，让重点信息更清晰' }, { key: 'care', label: '关怀模式', detail: '字体更大，设计更简明，看的更清晰' } ]" :key="mode.key" class="mode-option" type="button" @click="chooseDisplayMode(mode.key)"><span><strong>{{ mode.label }}</strong><small>{{ mode.detail }}</small></span><b v-if="displayMode === mode.key">✓</b></button>
+                    </div>
+                </section>
+                <section v-else-if="settingsPage === 'general'" class="settings-subpage">
+                    <div class="settings-group-label">界面与显示</div>
+                    <div class="settings-list">
+                        <button class="settings-list-row" type="button" @click="toggleDarkMode"><span class="settings-row-icon">◐</span><span>夜间模式</span><span class="mini-toggle" :class="{ active: darkMode }"><i></i></span></button>
+                        <button class="settings-list-row" type="button" @click="chooseFontScale(fontScale === 'large' ? 'normal' : 'large')"><span class="settings-row-icon">A</span><span>字体大小</span><small>{{ fontScale === 'large' ? '大号字体' : '标准' }}</small><span class="settings-arrow">›</span></button>
+                    </div>
+                    <div class="settings-group-label">记录与存储</div>
+                    <div class="settings-list">
+                        <button class="settings-list-row" type="button"><span class="settings-row-icon">◷</span><span>健康记录管理</span><small>备份、迁移</small><span class="settings-arrow">›</span></button>
+                        <button class="settings-list-row" type="button"><span class="settings-row-icon">▣</span><span>存储空间</span><small>图片、记录清理</small><span class="settings-arrow">›</span></button>
+                    </div>
+                </section>
+                <section v-else-if="settingsPage === 'privacy'" class="settings-subpage">
+                    <div class="settings-group-label">陌生人</div>
+                    <div class="settings-list">
+                        <button class="settings-list-row" type="button"><span class="settings-row-icon">⌕</span><span>找到我的方式</span><span class="settings-arrow">›</span></button>
+                        <button class="settings-list-row" type="button"><span class="settings-row-icon">♙</span><span>加我为好友的方式</span><span class="settings-arrow">›</span></button>
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('privacy', { strangerInvite: !privacySettings.strangerInvite }, 'movewell-privacy')"><span class="settings-row-icon">♧</span><span>允许陌生人邀请我加入群聊</span><span class="mini-toggle" :class="{ active: privacySettings.strangerInvite }"><i></i></span></button>
+                        <button class="settings-list-row" type="button" @click="saveSettingsPreference('privacy', { strangerLike: !privacySettings.strangerLike }, 'movewell-privacy')"><span class="settings-row-icon">♡</span><span>允许陌生人赞我</span><span class="mini-toggle" :class="{ active: privacySettings.strangerLike }"><i></i></span></button>
+                    </div>
+                    <div class="settings-group-label">在线状态</div>
+                    <div class="settings-list"><button class="settings-list-row" type="button" @click="saveSettingsPreference('privacy', { online: !privacySettings.online }, 'movewell-privacy')"><span class="settings-row-icon">◎</span><span>我的在线状态可见</span><span class="mini-toggle" :class="{ active: privacySettings.online }"><i></i></span></button></div>
+                </section>
+                <section v-else class="settings-subpage settings-about-page"><div class="settings-about-mark">H</div><h3>MoveWell</h3><p>运动、睡眠与心理健康管理工具。</p><small>让每一次坚持都有迹可循。</small></section>
             </section>
         </div>
 

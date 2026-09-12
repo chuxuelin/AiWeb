@@ -8,6 +8,18 @@ createApp({
         const error = ref("");
         const profileOpen = ref(false);
         const profileModal = ref(false);
+        const settingsOpen = ref(false);
+        const securityOpen = ref(false);
+        const settingsPage = ref("root");
+        const darkMode = ref(localStorage.getItem("movewell-dark-mode") === "1");
+        const displayMode = ref(localStorage.getItem("movewell-display-mode") || "normal");
+        const fontScale = ref(localStorage.getItem("movewell-font-scale") || "normal");
+        const notificationSettings = ref(JSON.parse(localStorage.getItem("movewell-notifications") || '{"system":true,"preview":true,"calls":true,"quick":true,"banner":true,"sound":true,"vibration":true,"dnd":false,"birthday":false,"groups":true}'));
+        const privacySettings = ref(JSON.parse(localStorage.getItem("movewell-privacy") || '{"strangerInvite":false,"strangerLike":true,"online":true}'));
+        const passwordForm = ref({ current_password: "", new_password: "", confirm_password: "" });
+        const passwordSaving = ref(false);
+        const passwordError = ref("");
+        const passwordSuccess = ref("");
         const profileForm = ref({
             nickname: "", bio: "", gender: "", birthday: "",
             country: "", region: "", signature: "",
@@ -54,11 +66,42 @@ createApp({
         const socialData = ref({ followers: [], conversations: [], notifications: [] });
         const socialUnread = ref({ followers: 0, messages: 0, notifications: 0 });
         const credentials = ref({ email: "admin", password: "123" });
+        const mentalMood = ref(localStorage.getItem("movewell-mental-mood") || "");
+        const mentalCheckinSaved = ref(Boolean(localStorage.getItem("movewell-mental-checkin")));
+        const mentalMoods = [
+            { key: "calm", label: "平静", icon: "☁", note: "状态稳定" },
+            { key: "good", label: "不错", icon: "☀", note: "有精力应对今天" },
+            { key: "tired", label: "疲惫", icon: "◔", note: "需要一点恢复" },
+            { key: "anxious", label: "焦虑", icon: "≈", note: "思绪有些紧绷" },
+            { key: "low", label: "低落", icon: "◡", note: "今天对自己温柔些" },
+        ];
+        const planVersion = ref(0);
+        const planItems = computed(() => {
+            const sleep = Number(dashboard.value?.metrics?.find((item) => item.key === "sleep")?.value || 0);
+            const water = Number(dashboard.value?.metrics?.find((item) => item.key === "water")?.value || 0);
+            const exercise = Number(dashboard.value?.hero?.exerciseMinutes || 0);
+            return [
+                { key: "move", icon: "↗", title: exercise >= 30 ? "保持轻量活动" : "完成 20 分钟活动", detail: exercise >= 30 ? "今天已有运动记录，做 5 分钟拉伸即可。" : "选择快走、瑜伽或骑行，保持可以交谈的强度。", tag: "运动" },
+                { key: "water", icon: "◌", title: water >= 2.2 ? "维持补水节奏" : "补充一杯水", detail: water >= 2.2 ? "今日饮水已达到建议目标，继续少量多次。" : `目前约 ${water}L，分时段补足至 2.2L。`, tag: "补水" },
+                { key: "sleep", icon: "☾", title: sleep >= 7 ? "保护今晚睡眠" : "今晚提前 30 分钟休息", detail: sleep >= 7 ? "保持固定入睡时间，睡前减少屏幕刺激。" : "睡前一小时放下工作，给身体留出恢复时间。", tag: "睡眠" },
+                { key: "recovery", icon: "♡", title: "安排 10 分钟恢复", detail: "做肩颈放松、呼吸练习或安静散步，不追求强度。", tag: "恢复" },
+                { key: "reflection", icon: "✦", title: "记录一个小进展", detail: "写下今天完成的一件事，帮助自己看见持续的变化。", tag: "觉察" },
+            ];
+        });
+        const planCompletedCount = computed(() => {
+            planVersion.value;
+            return planItems.value.filter((item) => isPlanItemDone(item.key)).length;
+        });
+        const planProgress = computed(() => Math.round(planCompletedCount.value / planItems.value.length * 100));
+
+        if (darkMode.value) document.body.classList.add("dark-mode");
+        if (displayMode.value === "care") document.body.classList.add("care-mode");
+        if (fontScale.value === "large") document.body.classList.add("large-text-mode");
         const navItems = [
             { key: "home", label: "首页", icon: "⌂", description: "综合健康概览" },
             { key: "exercise", label: "运动", icon: "↗", description: "记录与训练指导" },
             { key: "community", label: "运动社区", icon: "✚", description: "分享训练与健康生活" },
-            { key: "health", label: "健康", icon: "♡", description: "指标监测与评估" },
+            { key: "health", label: "心理健康", icon: "♡", description: "指标监测与评估" },
             { key: "plan", label: "处方/方案", icon: "✦", description: "个性化健康干预" },
             { key: "profile", label: "我的", icon: "○", description: "账户与设备管理" },
         ];
@@ -68,6 +111,27 @@ createApp({
         const avatarLetter = computed(() => (formattedUser.value || "Y").charAt(0).toUpperCase());
         const selectedExerciseGuide = computed(() => exerciseGuides.value.find((item) => item.key === exerciseForm.value.exercise_type));
         const exerciseTotalMinutes = computed(() => exerciseLogs.value.reduce((total, log) => total + Number(log.duration_minutes || 0), 0));
+        const mentalRecoveryScore = computed(() => {
+            const sleepQuality = Number(dashboard.value?.hero?.sleepQuality || 0);
+            const sleepMetric = dashboard.value?.metrics?.find((item) => item.key === "sleep");
+            const sleepHours = Number(sleepMetric?.value || 0);
+            return Math.max(0, Math.min(100, Math.round(sleepQuality * 0.7 + Math.min(sleepHours / 8, 1) * 30)));
+        });
+        const mentalStatus = computed(() => {
+            if (mentalRecoveryScore.value >= 78) return { label: "恢复状态良好", tone: "good" };
+            if (mentalRecoveryScore.value >= 55) return { label: "需要适度调整", tone: "steady" };
+            return { label: "优先安排恢复", tone: "attention" };
+        });
+        const mentalAdvice = computed(() => {
+            const advice = {
+                calm: "保持当前节奏，给自己留出一段不被打扰的时间。",
+                good: "把充足的精力用在一件重要的小事上，完成后及时肯定自己。",
+                tired: "今天降低安排密度，先补水、放松肩颈，再决定是否进行高强度训练。",
+                anxious: "试试 4-6 呼吸法：吸气 4 秒，呼气 6 秒，持续 2 分钟。",
+                low: "先完成一件最小的照顾自己的行动，也可以找可信任的人聊一聊。",
+            };
+            return advice[mentalMood.value] || "选一个最接近此刻状态的情绪，开始一次简短的自我觉察。";
+        });
 
         async function request(url, options = {}) {
             const isFormData = options.body instanceof FormData;
@@ -200,8 +264,8 @@ createApp({
         function selectPrivateImage(event) {
             const file = event.target.files[0];
             if (!file) return;
-            if (file.size > 2 * 1024 * 1024) {
-                privateMessageError.value = "图片不能超过 2MB";
+            if (file.size > 10 * 1024 * 1024) {
+                privateMessageError.value = "图片不能超过 10MB";
                 return;
             }
             privateImageFile.value = file;
@@ -375,6 +439,28 @@ createApp({
             }
         }
 
+        function saveMentalCheckin() {
+            if (!mentalMood.value) return;
+            localStorage.setItem("movewell-mental-mood", mentalMood.value);
+            localStorage.setItem("movewell-mental-checkin", new Date().toISOString());
+            mentalCheckinSaved.value = true;
+        }
+
+        function planStorageKey(key) {
+            return `movewell-plan-${new Date().toISOString().slice(0, 10)}-${key}`;
+        }
+
+        function isPlanItemDone(key) {
+            return localStorage.getItem(planStorageKey(key)) === "1";
+        }
+
+        function togglePlanItem(key) {
+            const storageKey = planStorageKey(key);
+            if (isPlanItemDone(key)) localStorage.removeItem(storageKey);
+            else localStorage.setItem(storageKey, "1");
+            planVersion.value += 1;
+        }
+
         function exerciseName(key) {
             return exerciseGuides.value.find((item) => item.key === key)?.name || key;
         }
@@ -459,6 +545,87 @@ createApp({
             window.location.href = "/admin";
         }
 
+        function openSettings() {
+            profileOpen.value = false;
+            securityOpen.value = false;
+            settingsPage.value = "root";
+            passwordForm.value = { current_password: "", new_password: "", confirm_password: "" };
+            passwordError.value = "";
+            passwordSuccess.value = "";
+            settingsOpen.value = true;
+        }
+
+        function openSettingsPage(page) {
+            settingsPage.value = page;
+            securityOpen.value = page === "security";
+        }
+
+        function backSettingsPage() {
+            settingsPage.value = "root";
+            securityOpen.value = false;
+        }
+
+        function saveSettingsPreference(key, value, storageKey) {
+            const current = key === "notification" ? notificationSettings.value : privacySettings.value;
+            const next = { ...current, ...value };
+            localStorage.setItem(storageKey, JSON.stringify(next));
+            if (key === "notification") notificationSettings.value = next;
+            if (key === "privacy") privacySettings.value = next;
+        }
+
+        function chooseDisplayMode(mode) {
+            displayMode.value = mode;
+            localStorage.setItem("movewell-display-mode", mode);
+            if (mode === "care") fontScale.value = "large";
+            document.body.classList.toggle("care-mode", mode === "care");
+            document.body.classList.toggle("large-text-mode", fontScale.value === "large");
+            localStorage.setItem("movewell-font-scale", fontScale.value);
+        }
+
+        function chooseFontScale(scale) {
+            fontScale.value = scale;
+            localStorage.setItem("movewell-font-scale", scale);
+            document.body.classList.toggle("large-text-mode", scale === "large");
+        }
+
+        function openAccountSecurity() {
+            securityOpen.value = true;
+            passwordError.value = "";
+            passwordSuccess.value = "";
+        }
+
+        function closeAccountSecurity() {
+            backSettingsPage();
+            passwordError.value = "";
+            passwordSuccess.value = "";
+        }
+
+        function toggleDarkMode() {
+            darkMode.value = !darkMode.value;
+            document.body.classList.toggle("dark-mode", darkMode.value);
+            localStorage.setItem("movewell-dark-mode", darkMode.value ? "1" : "0");
+            if (darkMode.value) displayMode.value = "night";
+            localStorage.setItem("movewell-display-mode", displayMode.value);
+        }
+
+        async function updatePassword() {
+            passwordSaving.value = true;
+            passwordError.value = "";
+            passwordSuccess.value = "";
+            try {
+                await request("/api/password", {
+                    method: "POST",
+                    body: JSON.stringify(passwordForm.value),
+                });
+                passwordForm.value = { current_password: "", new_password: "", confirm_password: "" };
+                passwordSuccess.value = "密码修改成功，下次登录请使用新密码。";
+            } catch (requestError) {
+                passwordError.value = requestError.message;
+            } finally {
+                passwordSaving.value = false;
+            }
+        }
+
         function openProfile() {
             profileOpen.value = false;
             profileError.value = "";
@@ -480,8 +647,8 @@ createApp({
         function selectAvatar(event) {
             const file = event.target.files[0];
             if (!file) return;
-            if (file.size > 2 * 1024 * 1024) {
-                profileError.value = "头像图片不能超过 2MB";
+            if (file.size > 10 * 1024 * 1024) {
+                profileError.value = "头像图片不能超过 10MB";
                 return;
             }
             profileFile.value = file;
@@ -539,6 +706,18 @@ createApp({
             submitting,
             error,
             profileOpen,
+            settingsOpen,
+            securityOpen,
+            settingsPage,
+            darkMode,
+            displayMode,
+            fontScale,
+            notificationSettings,
+            privacySettings,
+            passwordForm,
+            passwordSaving,
+            passwordError,
+            passwordSuccess,
             scanOpen,
             activeNav,
             selectNav,
@@ -555,6 +734,28 @@ createApp({
             selectedExerciseGuide,
             exerciseTotalMinutes,
             exerciseName,
+            mentalMood,
+            mentalCheckinSaved,
+            mentalMoods,
+            mentalRecoveryScore,
+            mentalStatus,
+            mentalAdvice,
+            saveMentalCheckin,
+            openSettings,
+            openSettingsPage,
+            backSettingsPage,
+            openAccountSecurity,
+            closeAccountSecurity,
+            saveSettingsPreference,
+            chooseDisplayMode,
+            chooseFontScale,
+            toggleDarkMode,
+            updatePassword,
+            planItems,
+            planCompletedCount,
+            planProgress,
+            isPlanItemDone,
+            togglePlanItem,
             communityPosts,
             communityContent,
             communityError,
